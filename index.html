@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APEX VOICE ANALYZER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #080c10;
+    --panel:     #0d1520;
+    --border:    #1a2e45;
+    --accent:    #00d4ff;
+    --accent2:   #0088bb;
+    --positive:  #00ff88;
+    --negative:  #ff8800;
+    --toxic:     #ff2244;
+    --neutral:   #6688aa;
+    --callout:   #aa66ff;
+    --text:      #c8dde8;
+    --text-dim:  #4a6a80;
+    --glow:      0 0 12px rgba(0,212,255,0.4);
+    --font-hud:  'Rajdhani', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-body: 'Noto Sans JP', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── グリッド背景 ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── スキャンライン ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none; z-index: 0;
+  }
+
+  #app { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  /* ── ヘッダー ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; margin-bottom: 20px;
+    background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(0,136,187,0.04));
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--accent);
+    clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 0 100%);
+  }
+
+  .logo {
+    font-family: var(--font-hud); font-size: 30px; font-weight: 700;
+    letter-spacing: 4px; color: var(--accent);
+    text-shadow: var(--glow);
+  }
+  .logo span { color: var(--text-dim); font-weight: 400; font-size: 15px;
+    display: block; letter-spacing: 6px; margin-top: -4px; }
+
+  .header-status {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 14px; color: var(--text-dim);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim); transition: all 0.3s;
+  }
+  .status-dot.active { background: var(--positive); box-shadow: 0 0 8px var(--positive); animation: pulse 1.4s infinite; }
+  .status-dot.recording { background: var(--toxic); box-shadow: 0 0 8px var(--toxic); animation: pulse 0.8s infinite; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── グリッドレイアウト ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    grid-template-rows: auto 1fr;
+    gap: 16px;
+  }
+
+  /* ── パネル共通 ── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+  .panel-title {
+    font-family: var(--font-hud); font-size: 13px; font-weight: 600;
+    letter-spacing: 4px; color: var(--accent); text-transform: uppercase;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::after {
+    content: ''; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+  }
+
+  /* ── コントロールパネル ── */
+  #control-panel { grid-row: 1 / 3; }
+
+  .match-timer {
+    font-family: var(--font-mono); font-size: 42px; font-weight: 400;
+    color: var(--accent); text-align: center; letter-spacing: 2px;
+    text-shadow: var(--glow); line-height: 1;
+    margin: 12px 0 4px;
+  }
+  .match-label {
+    text-align: center; font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-dim); letter-spacing: 3px; margin-bottom: 20px;
+  }
+
+  /* ── ボタン ── */
+  .btn {
+    width: 100%; padding: 14px 0; border: none; cursor: pointer;
+    font-family: var(--font-hud); font-size: 18px; font-weight: 700;
+    letter-spacing: 3px; text-transform: uppercase;
+    transition: all 0.2s; position: relative; overflow: hidden;
+    clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    margin-bottom: 10px;
+  }
+  .btn-start {
+    background: linear-gradient(135deg, #004422, #006633);
+    color: var(--positive); border: 1px solid rgba(0,255,136,0.3);
+  }
+  .btn-start:hover { background: linear-gradient(135deg, #006633, #008844); box-shadow: 0 0 20px rgba(0,255,136,0.2); }
+  .btn-end {
+    background: linear-gradient(135deg, #330011, #550022);
+    color: var(--toxic); border: 1px solid rgba(255,34,68,0.3);
+  }
+  .btn-end:hover { background: linear-gradient(135deg, #550022, #770033); box-shadow: 0 0 20px rgba(255,34,68,0.2); }
+  .btn-mic {
+    background: linear-gradient(135deg, #001a33, #002244);
+    color: var(--accent); border: 1px solid rgba(0,212,255,0.3);
+    font-size: 13px;
+  }
+  .btn-mic:hover { box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+  .btn-mic.listening { background: linear-gradient(135deg, #003344, #004455); animation: mic-pulse 1.5s infinite; }
+  @keyframes mic-pulse { 0%,100%{box-shadow:0 0 8px rgba(0,212,255,0.3)} 50%{box-shadow:0 0 24px rgba(0,212,255,0.6)} }
+
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── 統計バー ── */
+  .stats-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+
+  .stat-row { display: flex; align-items: center; gap: 10px; }
+  .stat-label {
+    font-family: var(--font-mono); font-size: 12px; width: 68px;
+    flex-shrink: 0; letter-spacing: 1px;
+  }
+  .stat-bar-wrap {
+    flex: 1; height: 6px; background: rgba(255,255,255,0.06); position: relative;
+  }
+  .stat-bar {
+    height: 100%; width: 0%; transition: width 0.6s ease;
+    position: relative;
+  }
+  .stat-bar::after {
+    content: ''; position: absolute; right: 0; top: -2px;
+    width: 2px; height: 10px;
+  }
+  .stat-count {
+    font-family: var(--font-mono); font-size: 15px; width: 28px;
+    text-align: right; flex-shrink: 0;
+  }
+
+  .positive .stat-bar  { background: var(--positive); }
+  .positive .stat-bar::after { background: var(--positive); box-shadow: 0 0 6px var(--positive); }
+  .positive .stat-label,.positive .stat-count { color: var(--positive); }
+  .negative .stat-bar  { background: var(--negative); }
+  .negative .stat-bar::after { background: var(--negative); box-shadow: 0 0 6px var(--negative); }
+  .negative .stat-label,.negative .stat-count { color: var(--negative); }
+  .toxic    .stat-bar  { background: var(--toxic); }
+  .toxic    .stat-bar::after { background: var(--toxic); box-shadow: 0 0 6px var(--toxic); }
+  .toxic    .stat-label,.toxic    .stat-count { color: var(--toxic); }
+  .neutral  .stat-bar  { background: var(--neutral); }
+  .neutral  .stat-bar::after { background: var(--neutral); box-shadow: 0 0 6px var(--neutral); }
+  .neutral  .stat-label,.neutral  .stat-count { color: var(--neutral); }
+  .callout  .stat-bar  { background: var(--callout); }
+  .callout  .stat-bar::after { background: var(--callout); box-shadow: 0 0 6px var(--callout); }
+  .callout  .stat-label,.callout  .stat-count { color: var(--callout); }
+
+  .divider {
+    height: 1px; background: var(--border); margin: 16px 0;
+  }
+
+  .info-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--font-mono); font-size: 13px; margin-bottom: 6px;
+  }
+  .info-key { color: var(--text-dim); letter-spacing: 1px; }
+  .info-val { color: var(--text); font-size: 15px; }
+
+  /* ── 音声認識 & ログ ── */
+  #recognition-panel { }
+
+  .interim-box {
+    background: rgba(0,212,255,0.04); border: 1px solid rgba(0,212,255,0.15);
+    padding: 12px 16px; margin-bottom: 14px; min-height: 52px;
+    font-family: var(--font-body); font-size: 16px; color: var(--text-dim);
+    font-style: italic; transition: all 0.2s; line-height: 1.5;
+    position: relative;
+  }
+  .interim-box::before {
+    content: '🎤';
+    position: absolute; top: 10px; right: 12px; font-size: 12px; opacity: 0.5;
+  }
+  .interim-box.has-text { color: var(--text); background: rgba(0,212,255,0.07); }
+
+  /* ── 発言ログ ── */
+  #log-panel { }
+
+  #log-list {
+    list-style: none; display: flex; flex-direction: column; gap: 6px;
+    max-height: 380px; overflow-y: auto; padding-right: 4px;
+  }
+  #log-list::-webkit-scrollbar { width: 4px; }
+  #log-list::-webkit-scrollbar-track { background: transparent; }
+  #log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-item {
+    display: grid; grid-template-columns: 70px 72px 1fr;
+    gap: 10px; align-items: start;
+    padding: 9px 12px; background: rgba(255,255,255,0.02);
+    border-left: 2px solid; font-size: 15px;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+
+  .log-item.positive { border-color: var(--positive); }
+  .log-item.negative { border-color: var(--negative); }
+  .log-item.toxic    { border-color: var(--toxic); background: rgba(255,34,68,0.05); }
+  .log-item.neutral  { border-color: var(--neutral); }
+  .log-item.callout  { border-color: var(--callout); background: rgba(170,102,255,0.05); }
+
+  .log-time { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); padding-top: 1px; }
+  .log-cat  { font-family: var(--font-hud); font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+  .log-item.positive .log-cat { color: var(--positive); }
+  .log-item.negative .log-cat { color: var(--negative); }
+  .log-item.toxic    .log-cat { color: var(--toxic); }
+  .log-item.neutral  .log-cat { color: var(--neutral); }
+  .log-item.callout  .log-cat { color: var(--callout); }
+  .log-text { color: var(--text); line-height: 1.4; }
+
+  .empty-log {
+    text-align: center; font-family: var(--font-mono); font-size: 14px;
+    color: var(--text-dim); padding: 40px; letter-spacing: 2px;
+  }
+
+  /* ── 試合履歴 ── */
+  #history-panel { grid-column: 1 / -1; }
+
+  #history-list {
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 200px; overflow-y: auto;
+  }
+  .history-item {
+    display: grid;
+    grid-template-columns: 100px 120px 70px repeat(4, 50px) 70px 1fr auto;
+    gap: 12px; align-items: center;
+    padding: 10px 14px; background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border); font-family: var(--font-mono); font-size: 13px;
+    transition: border-color 0.2s;
+  }
+  .history-item:hover { border-color: var(--accent2); }
+  .history-match-id { color: var(--accent2); }
+  .history-duration { color: var(--text); }
+  .history-p { color: var(--positive); }
+  .history-n { color: var(--negative); }
+  .history-t { color: var(--toxic); }
+  .history-neu { color: var(--neutral); }
+  .history-ratio { color: var(--text-dim); }
+  .history-date { color: var(--text-dim); }
+
+  .btn-export {
+    padding: 6px 14px; background: transparent; cursor: pointer;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 1px;
+    color: var(--accent); border: 1px solid rgba(0,212,255,0.3);
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .btn-export:hover { background: rgba(0,212,255,0.1); box-shadow: var(--glow); }
+
+  .history-header {
+    display: grid;
+    grid-template-columns: 100px 120px 70px repeat(4, 50px) 70px 1fr auto;
+    gap: 12px; padding: 6px 14px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); letter-spacing: 1px;
+    border-bottom: 1px solid var(--border); margin-bottom: 6px;
+  }
+
+  /* ── 免責モーダル ── */
+  #disclaimer-modal {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(4,8,12,0.95);
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .modal-box {
+    background: var(--panel); border: 1px solid var(--border);
+    border-top: 2px solid var(--accent);
+    width: min(560px, 94vw); padding: 36px;
+    clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+    animation: modalIn 0.4s ease;
+  }
+  @keyframes modalIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  .modal-title {
+    font-family: var(--font-hud); font-size: 24px; font-weight: 700;
+    letter-spacing: 4px; color: var(--accent); margin-bottom: 6px;
+    text-shadow: var(--glow);
+  }
+  .modal-sub {
+    font-family: var(--font-mono); font-size: 13px; color: var(--text-dim);
+    letter-spacing: 2px; margin-bottom: 24px;
+  }
+
+  .disclaimer-list {
+    list-style: none; display: flex; flex-direction: column; gap: 10px;
+    margin-bottom: 24px;
+  }
+  .disclaimer-list li {
+    padding: 10px 14px; border-left: 2px solid var(--accent2);
+    background: rgba(0,212,255,0.04);
+    font-size: 15px; line-height: 1.6; color: var(--text);
+  }
+  .disclaimer-list li strong { color: var(--accent); font-family: var(--font-hud); letter-spacing: 1px; }
+
+  .checkbox-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    padding: 12px; border: 1px solid var(--border); cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .checkbox-row:hover { border-color: var(--accent2); }
+  .checkbox-row input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .checkbox-row label { font-size: 15px; color: var(--text); cursor: pointer; }
+
+  .btn-agree {
+    width: 100%; padding: 14px; background: linear-gradient(135deg, #003344, #004455);
+    color: var(--accent); border: 1px solid rgba(0,212,255,0.4);
+    font-family: var(--font-hud); font-size: 18px; font-weight: 700;
+    letter-spacing: 4px; text-transform: uppercase; cursor: pointer;
+    transition: all 0.2s; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  }
+  .btn-agree:hover:not(:disabled) { box-shadow: var(--glow); background: linear-gradient(135deg, #004455, #005566); }
+  .btn-agree:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── トースト ── */
+  #toast {
+    position: fixed; bottom: 30px; right: 30px; z-index: 500;
+    padding: 12px 20px; background: var(--panel);
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    font-family: var(--font-mono); font-size: 14px; color: var(--text);
+    transform: translateX(200%); transition: transform 0.3s;
+    max-width: 320px; letter-spacing: 1px;
+  }
+  #toast.show { transform: translateX(0); }
+  #toast.err  { border-left-color: var(--toxic); color: var(--toxic); }
+
+  /* ── レスポンシブ ── */
+  @media (max-width: 768px) {
+    .main-grid { grid-template-columns: 1fr; }
+    #control-panel { grid-row: auto; }
+    .history-item,.history-header { grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; }
+    .history-match-id,.history-ratio,.history-date { display: none; }
+  }
+
+  /* ── マイク波形アニメ ── */
+  .wave-bars {
+    display: flex; align-items: center; justify-content: center;
+    gap: 3px; height: 24px; margin: 8px 0;
+  }
+  .wave-bar {
+    width: 3px; background: var(--accent); border-radius: 2px;
+    height: 4px; transition: height 0.08s ease;
+  }
+  /* アニメはJSで個別制御するのでCSSからは削除 */
+  @keyframes wave { 0%,100%{height:4px} 50%{height:20px} }
+
+  .mic-section { margin-bottom: 16px; }
+
+  /* ── 自己評価モーダル ── */
+  #survey-modal {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(4,8,12,0.96);
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  #survey-modal.show { display: flex; }
+  .survey-box {
+    background: var(--panel); border: 1px solid var(--border);
+    border-top: 2px solid var(--accent);
+    width: min(560px, 94vw); padding: 32px;
+    clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+    animation: modalIn 0.3s ease;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .survey-box::-webkit-scrollbar { width: 4px; }
+  .survey-box::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .survey-phase {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 3px;
+    color: var(--accent2); margin-bottom: 4px;
+  }
+  .survey-title {
+    font-family: var(--font-hud); font-size: 22px; font-weight: 700;
+    letter-spacing: 3px; color: var(--accent); margin-bottom: 20px;
+    text-shadow: var(--glow);
+  }
+
+  .survey-item { margin-bottom: 20px; }
+  .survey-label {
+    font-size: 15px; color: var(--text); margin-bottom: 10px;
+    display: block; line-height: 1.5;
+  }
+  .survey-label span {
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--accent2); letter-spacing: 1px; margin-right: 6px;
+  }
+
+  /* ── 5段階スライダー（目盛り・バブル付き） ── */
+  .rating-wrap {
+    position: relative; padding-top: 28px; padding-bottom: 20px;
+    user-select: none;
+  }
+
+  /* マーカー上に浮かぶ現在値バブル */
+  .rating-bubble {
+    position: absolute; top: 0;
+    transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+    color: #080c10; background: var(--accent);
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 8px rgba(0,212,255,0.6);
+    transition: left 0.08s;
+    pointer-events: none;
+  }
+  .rating-bubble::after {
+    content: ''; position: absolute; bottom: -5px; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--accent);
+    border-bottom: none;
+  }
+
+  /* スライダー本体 */
+  .rating-wrap input[type=range] {
+    width: 100%; -webkit-appearance: none; appearance: none;
+    height: 4px; background: transparent; outline: none;
+    position: relative; z-index: 2; cursor: pointer;
+  }
+
+  /* トラック背景（グラデーション） */
+  .rating-track {
+    position: absolute;
+    left: 8px; right: 8px; /* サムの半径分オフセット */
+    top: calc(28px + 6px); /* padding-top + (thumb_height/2 - track_height/2) */
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    z-index: 0;
+  }
+  .rating-track-fill {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    transition: width 0.08s;
+  }
+
+  /* サム（マーカー） */
+  .rating-wrap input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--accent);
+    cursor: pointer; border: 2px solid #080c10;
+    box-shadow: 0 0 8px rgba(0,212,255,0.6);
+    transition: box-shadow 0.15s, transform 0.15s;
+    position: relative; z-index: 2;
+  }
+  .rating-wrap input[type=range]::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 16px rgba(0,212,255,0.9);
+    transform: scale(1.15);
+  }
+  .rating-wrap input[type=range]::-webkit-slider-runnable-track {
+    height: 4px; background: transparent;
+  }
+
+  /* 目盛りコンテナ */
+  .rating-ticks {
+    position: absolute;
+    left: 8px; right: 8px;
+    top: calc(28px + 12px); /* track の下 */
+    display: flex; justify-content: space-between;
+    pointer-events: none; z-index: 1;
+  }
+  .rating-tick {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    width: 0; /* 幅なし・中心だけ示す */
+  }
+  .rating-tick-line {
+    width: 1px; height: 6px; background: var(--text-dim); opacity: 0.5;
+  }
+  .rating-tick-line.active { background: var(--accent); opacity: 0.8; }
+
+  /* 両端ラベル（1・5）＋中間テキスト */
+  .rating-labels {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 2px;
+    font-family: var(--font-mono); font-size: 10px;
+  }
+  .rating-labels .end-num {
+    color: var(--accent2); font-size: 12px; font-weight: 700; min-width: 10px;
+  }
+  .rating-labels .end-text {
+    color: var(--text-dim); font-size: 10px; text-align: center; flex: 1; padding: 0 6px;
+  }
+
+  /* 自由記述 */
+  textarea.survey-textarea {
+    width: 100%; background: #0a1520; border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-body); font-size: 13px;
+    padding: 10px 12px; resize: vertical; min-height: 72px;
+    outline: none; line-height: 1.6; box-sizing: border-box;
+    transition: border-color 0.2s;
+  }
+  textarea.survey-textarea:focus { border-color: var(--accent2); }
+  textarea.survey-textarea::placeholder { color: var(--text-dim); }
+
+  .survey-divider { height: 1px; background: var(--border); margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<!-- 統合モーダル（免責同意 + 参加者名入力） -->
+<div id="disclaimer-modal">
+  <div class="modal-box">
+    <div class="modal-title">VOICE ANALYZER</div>
+    <div class="modal-sub">APEX LEGENDS // 利用前の注意事項</div>
+    <ul class="disclaimer-list">
+      <li><strong>音声保存なし</strong> — 音声データは録音・保存しません。テキスト認識結果のみブラウザ内に保存されます。</li>
+      <li><strong>誤認識の可能性</strong> — 音声認識（Web Speech API）には誤認識が発生する場合があります。認識精度を保証しません。</li>
+      <li><strong>ゲーム規約</strong> — 本ツールとApex Legendsの利用規約との互換性は保証しません。</li>
+      <li><strong>自己責任</strong> — 本ツールの使用により生じたいかなる損害についても作者は責任を負いません。</li>
+    </ul>
+
+    <div style="height:1px; background:var(--border); margin:18px 0;"></div>
+
+    <div style="margin-bottom:6px; font-family:var(--font-mono); font-size:10px; color:var(--accent); letter-spacing:2px;">参加者名</div>
+    <input
+      type="text" id="participant-name-input"
+      placeholder="例：田中太郎"
+      style="
+        width:100%; padding:12px 14px; background:#0a1520;
+        border:1px solid var(--border); color:var(--text);
+        font-family:var(--font-body); font-size:15px; box-sizing:border-box;
+        margin-bottom:4px; outline:none; transition:border-color 0.2s;
+      "
+      oninput="onNameInput()"
+      onkeydown="if(event.key==='Enter') startWithName()"
+    >
+    <div id="name-error" style="font-family:var(--font-mono);font-size:11px;color:var(--toxic);min-height:18px;margin-bottom:10px;"></div>
+
+    <label class="checkbox-row">
+      <input type="checkbox" id="agree-check" onchange="onAgreeChange()">
+      <label for="agree-check">上記の注意事項を読み、理解した上で同意します</label>
+    </label>
+    <button class="btn-agree" id="agree-btn" disabled onclick="startWithName()">
+      同意して起動
+    </button>
+  </div>
+</div>
+
+<!-- 初回ベースライン自己評価モーダル -->
+<div id="baseline-modal" style="position:fixed;inset:0;z-index:1000;background:rgba(4,8,12,0.96);display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div class="survey-box" style="width:min(580px,94vw);">
+    <div class="survey-phase">初回アンケート</div>
+    <div class="survey-title">普段のプレイについて</div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:22px;">
+      あなたが<strong style="color:var(--text)">普段のプレイ</strong>でどのように行動しているかについて教えてください。<br>
+      5段階で評価してください（1：全くそう思わない ／ 5：とてもそう思う）
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q1</span>普段のプレイでポジティブな声掛けをしている</label>
+      <div class="rating-wrap" id="wrap-bq1">
+        <div class="rating-bubble" id="bub-bq1">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-bq1" style="width:50%"></div></div>
+        <input type="range" id="bq1" min="1" max="5" value="3" oninput="updateRating('bq1')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq1-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq1-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq1-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq1-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq1-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q2</span>普段からチームに情報共有をしている</label>
+      <div class="rating-wrap" id="wrap-bq2">
+        <div class="rating-bubble" id="bub-bq2">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-bq2" style="width:50%"></div></div>
+        <input type="range" id="bq2" min="1" max="5" value="3" oninput="updateRating('bq2')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq2-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq2-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq2-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq2-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq2-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q3</span>自分はVCで積極的に発言する方だ</label>
+      <div class="rating-wrap" id="wrap-bq3">
+        <div class="rating-bubble" id="bub-bq3">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-bq3" style="width:50%"></div></div>
+        <input type="range" id="bq3" min="1" max="5" value="3" oninput="updateRating('bq3')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq3-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq3-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq3-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq3-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq3-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q4</span>プレイ中に感情的になることは少ない</label>
+      <div class="rating-wrap" id="wrap-bq4">
+        <div class="rating-bubble" id="bub-bq4">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-bq4" style="width:50%"></div></div>
+        <input type="range" id="bq4" min="1" max="5" value="3" oninput="updateRating('bq4')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq4-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq4-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq4-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq4-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq4-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q5</span>チームメンバーを責めることは少ない</label>
+      <div class="rating-wrap" id="wrap-bq5">
+        <div class="rating-bubble" id="bub-bq5">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-bq5" style="width:50%"></div></div>
+        <input type="range" id="bq5" min="1" max="5" value="3" oninput="updateRating('bq5')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq5-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq5-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq5-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq5-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-bq5-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-divider"></div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q6</span>コメント（自由記述・任意）</label>
+      <textarea class="survey-textarea" id="bq6" placeholder="普段のプレイで気になること、意識していることなどを自由に記入してください"></textarea>
+    </div>
+
+    <button class="btn-agree" onclick="submitBaseline()">回答してアプリを開始する</button>
+  </div>
+</div>
+
+<!-- トースト通知 -->
+<div id="toast"></div>
+
+<!-- 自己評価モーダル（試合前・試合後で質問文を切り替え） -->
+<div id="survey-modal">
+  <div class="survey-box">
+    <div class="survey-phase" id="survey-phase">試合前</div>
+    <div class="survey-title" id="survey-title">試合前の自己評価</div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:20px;" id="survey-desc">
+      この試合に臨む前の状態について教えてください。<br>5段階で評価してください（1：全くそう思わない ／ 5：とてもそう思う）
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q1</span><span id="ql1"></span></label>
+      <div class="rating-wrap" id="wrap-q1">
+        <div class="rating-bubble" id="bub-q1">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-q1" style="width:50%"></div></div>
+        <input type="range" id="q1" min="1" max="5" value="3" oninput="updateRating('q1')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q1-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q1-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q1-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q1-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q1-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q2</span><span id="ql2"></span></label>
+      <div class="rating-wrap" id="wrap-q2">
+        <div class="rating-bubble" id="bub-q2">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-q2" style="width:50%"></div></div>
+        <input type="range" id="q2" min="1" max="5" value="3" oninput="updateRating('q2')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q2-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q2-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q2-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q2-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q2-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q3</span><span id="ql3"></span></label>
+      <div class="rating-wrap" id="wrap-q3">
+        <div class="rating-bubble" id="bub-q3">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-q3" style="width:50%"></div></div>
+        <input type="range" id="q3" min="1" max="5" value="3" oninput="updateRating('q3')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q3-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q3-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q3-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q3-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q3-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q4</span><span id="ql4"></span></label>
+      <div class="rating-wrap" id="wrap-q4">
+        <div class="rating-bubble" id="bub-q4">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-q4" style="width:50%"></div></div>
+        <input type="range" id="q4" min="1" max="5" value="3" oninput="updateRating('q4')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q4-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q4-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q4-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q4-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q4-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q5</span><span id="ql5"></span></label>
+      <div class="rating-wrap" id="wrap-q5">
+        <div class="rating-bubble" id="bub-q5">3</div>
+        <div class="rating-track"><div class="rating-track-fill" id="fill-q5" style="width:50%"></div></div>
+        <input type="range" id="q5" min="1" max="5" value="3" oninput="updateRating('q5')">
+        <div class="rating-ticks">
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q5-1"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q5-2"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q5-3"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q5-4"></div></div>
+          <div class="rating-tick"><div class="rating-tick-line" id="tick-q5-5"></div></div>
+        </div>
+      </div>
+      <div class="rating-labels">
+        <span class="end-num">1</span>
+        <span class="end-text">全くそう思わない　／　とてもそう思う</span>
+        <span class="end-num" style="text-align:right">5</span>
+      </div>
+    </div>
+
+    <div class="survey-divider"></div>
+
+    <div class="survey-item">
+      <label class="survey-label"><span>Q6</span><span id="ql6"></span></label>
+      <textarea class="survey-textarea" id="q6" placeholder="自由に記入してください（任意）"></textarea>
+    </div>
+
+    <button class="btn-agree" id="survey-submit-btn" onclick="submitSurvey()">
+      回答して続ける
+    </button>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="logo">APEX VOICE ANALYZER<span>COMMUNICATION TRACKER v1.0</span></div>
+    <div class="header-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">STANDBY</span>
+      <span style="margin-left:12px; font-family:var(--font-mono); font-size:11px; color:var(--accent2);" id="header-name"></span>
+    </div>
+  </header>
+
+  <div class="main-grid">
+
+    <!-- ── 左：コントロール ── -->
+    <div class="panel" id="control-panel">
+      <div class="panel-title">MATCH CONTROL</div>
+
+      <div class="match-timer" id="timer">00:00</div>
+      <div class="match-label">ELAPSED TIME</div>
+
+      <button class="btn btn-start" id="btn-start" onclick="startMatch()">▶ 試合開始</button>
+      <button class="btn btn-end"   id="btn-end"   onclick="endMatch()" disabled>■ 試合終了</button>
+
+      <div class="divider"></div>
+      <div class="panel-title">MIC INPUT</div>
+
+      <div class="mic-section">
+        <button class="btn btn-mic" id="btn-mic" onclick="toggleMic()">🎤 マイク開始</button>
+        <div class="wave-bars" id="wave-bars">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+          <div class="wave-bar"></div><div class="wave-bar"></div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="panel-title">MATCH STATS</div>
+
+      <div class="stats-grid">
+        <div class="stat-row positive">
+          <span class="stat-label">POSITIVE</span>
+          <div class="stat-bar-wrap"><div class="stat-bar" id="bar-positive"></div></div>
+          <span class="stat-count" id="cnt-positive">0</span>
+        </div>
+        <div class="stat-row negative">
+          <span class="stat-label">NEGATIVE</span>
+          <div class="stat-bar-wrap"><div class="stat-bar" id="bar-negative"></div></div>
+          <span class="stat-count" id="cnt-negative">0</span>
+        </div>
+        <div class="stat-row toxic">
+          <span class="stat-label">TOXIC</span>
+          <div class="stat-bar-wrap"><div class="stat-bar" id="bar-toxic"></div></div>
+          <span class="stat-count" id="cnt-toxic">0</span>
+        </div>
+        <div class="stat-row neutral">
+          <span class="stat-label">NEUTRAL</span>
+          <div class="stat-bar-wrap"><div class="stat-bar" id="bar-neutral"></div></div>
+          <span class="stat-count" id="cnt-neutral">0</span>
+        </div>
+        <div class="stat-row callout">
+          <span class="stat-label">CALLOUT</span>
+          <div class="stat-bar-wrap"><div class="stat-bar" id="bar-callout"></div></div>
+          <span class="stat-count" id="cnt-callout">0</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="info-row"><span class="info-key">PLAYER</span><span class="info-val" id="player-name-disp">——</span></div>
+      <div class="info-row"><span class="info-key">TOTAL</span><span class="info-val" id="total-count">0 発言</span></div>
+      <div class="info-row"><span class="info-key">TALK RATIO</span><span class="info-val" id="talk-ratio">0.0%</span></div>
+      <div class="info-row"><span class="info-key">MATCH ID</span><span class="info-val" id="match-id-disp">——</span></div>
+    </div>
+
+    <!-- ── 右上：認識 ── -->
+    <div class="panel" id="recognition-panel">
+      <div class="panel-title">VOICE RECOGNITION</div>
+
+      <!-- リアルタイム認識表示（改善版） -->
+      <div class="interim-box" id="interim-box">音声認識を開始してください...</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);">
+          信頼度：<span id="confidence-val" style="color:var(--accent);">——</span>
+        </div>
+        <div id="retry-indicator" style="font-family:var(--font-mono);font-size:10px;color:var(--negative);display:none;">
+          ↻ 再認識中...
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);">
+          しきい値：<span style="color:var(--accent2);" id="threshold-disp">0.6</span>
+          <input type="range" id="threshold-slider" min="0" max="9" value="6" step="1"
+            style="width:60px;margin-left:6px;vertical-align:middle;"
+            oninput="onThresholdChange(this.value)">
+        </div>
+      </div>
+
+      <div class="panel-title" style="margin-top:4px">LIVE LOG</div>
+      <ul id="log-list">
+        <li class="empty-log" id="empty-msg">── 発言なし ──</li>
+      </ul>
+    </div>
+
+    <!-- ── 右下（全幅）：履歴 ── -->
+    <div class="panel" id="history-panel">
+      <div class="panel-title">MATCH HISTORY</div>
+      <div class="history-header">
+        <span>参加者名</span><span>MATCH ID</span><span>TIME</span><span>POS</span><span>NEG</span>
+        <span>TOX</span><span>NEU</span><span>RATIO</span><span>DATE</span><span></span>
+      </div>
+      <div id="history-list">
+        <div style="text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);padding:20px;letter-spacing:2px">
+          ── 試合履歴なし ──
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// =========================================================
+// 暴言辞書
+// =========================================================
+const TOXIC_WORDS = new Set([
+  '死ね','しね','氏ね','うせろ','消えろ','ゴミ','ごみ','カス','かす',
+  '雑魚','ざこ','ザコ','バカ','馬鹿','アホ','あほ','クズ','くず',
+  '最悪','使えない','下手くそ','へたくそ','ヘタクソ','ドヘタ','どへた',
+  'キモい','きもい','臭い','くさい','邪魔','足手まとい','ノーブレイン'
+]);
+
+const POSITIVE_WORDS = [
+  'ありがとう','ありがと','感謝','すごい','うまい','上手','ナイス','ないす',
+  'よかった','助かった','たすかった','さすが','最高','さいこう','いいね',
+  'グッド','完璧','かんぺき','えらい','やった','やったー','やったぜ',
+  '勝った','かった','生き残れた','いいプレイ','ナイスプレイ'
+];
+
+const NEGATIVE_WORDS = [
+  'やばい','まずい','ダメ','だめ','無理','むり','終わった','おわった',
+  'しんどい','つらい','辛い','難しい','むずかしい','失敗','しっぱい',
+  'ミス','落ちた','おちた','やられた','倒された','たおされた',
+  '負けそう','もうだめ','きつい','きびしい'
+];
+
+// ── 声掛け辞書（励まし／指示／感謝称賛／確認質問）──
+const CALLOUT_WORDS = [
+  // 励まし・慰め
+  '大丈夫','だいじょうぶ','次いこ','つぎいこ','次行こう','切り替え','きりかえ',
+  'ドンマイ','どんまい','いける','まだいける','まだいけるよ','頑張れ','がんばれ',
+  'いっしょに','一緒に','焦らず','あせらず','落ち着いて','おちついて',
+  // 指示・情報共有
+  '右から','左から','後ろから','前から','上から','下から',
+  '来てる','きてる','敵いる','てきいる','集合','しゅうごう',
+  'こっち来て','こっちきて','引いて','ひいて','下がって','さがって',
+  '詰めよう','つめよう','プッシュ','いくよ','行くよ','行こう','いこう',
+  'リスポーン','バナー','蘇生','蘇生して','カバーして','カバーよろ',
+  'アーマー割れ','アーマーわれ','ノックダウン','ノック','確殺','かくさつ',
+  // 感謝・称賛
+  'ナイスキル','ナイスショット','ナイスムーブ','ナイスファイト','GG',
+  'さすが','助かった','たすかった','ありがとう','ありがと','よかった',
+  'いいね','グッド','完璧','かんぺき','神','かみ','えぐい','強い','つよい',
+  // 確認・質問
+  'どこにいる','どこいる','いる？','使える？','つかえる？','ウルトある',
+  'ウルト使える','回復できる','かいふくできる','弾ある','たまある',
+  'アーマーある','聞こえる','きこえる','大丈夫？','だいじょうぶ？',
+];
+
+// =========================================================
+// 分類エンジン
+// =========================================================
+function classify(text) {
+  // Step1: 暴言辞書（最優先）
+  for (const w of TOXIC_WORDS) {
+    if (text.includes(w)) return 'toxic';
+  }
+  // Step2: 声掛けチェック
+  const isCallout = CALLOUT_WORDS.some(w => text.includes(w));
+  if (isCallout) return 'callout';
+  // Step3: キーワードスコア
+  let pos = POSITIVE_WORDS.filter(w => text.includes(w)).length;
+  let neg = NEGATIVE_WORDS.filter(w => text.includes(w)).length;
+  if (pos > neg) return 'positive';
+  if (neg > pos) return 'negative';
+  return 'neutral';
+}
+
+// =========================================================
+// アプリ状態
+// =========================================================
+const state = {
+  participantName: '',
+  baselineSurvey: null,    // ログイン時の普段の自己評価
+  inMatch: false,
+  matchId: null,
+  matchStart: null,
+  utterances: [],
+  counts: { positive:0, negative:0, toxic:0, neutral:0, callout:0 },
+  talkSeconds: 0,
+  timerInterval: null,
+  micActive: false,
+  recognition: null,
+  history: [],
+  surveyPhase: null,       // 'pre' | 'post'
+  pendingMatchData: null,  // 試合後アンケート送信まで保持
+  preSurvey: null,
+  postSurvey: null,
+};
+
+// IndexedDB（永続保存）
+let db = null;
+
+function initDB() {
+  return new Promise((resolve) => {
+    const req = indexedDB.open('ApexVoiceAnalyzer', 1);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('matches')) {
+        d.createObjectStore('matches', { keyPath: 'matchId' });
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; resolve(); };
+    req.onerror   = () => resolve(); // DBなくても動作継続
+  });
+}
+
+function saveMatchToDB(matchData) {
+  if (!db) return;
+  const tx = db.transaction('matches', 'readwrite');
+  tx.objectStore('matches').put(matchData);
+}
+
+function loadHistoryFromDB() {
+  if (!db) return;
+  const tx = db.transaction('matches', 'readonly');
+  const req = tx.objectStore('matches').getAll();
+  req.onsuccess = e => {
+    state.history = e.target.result.sort((a,b) => b.startTime - a.startTime);
+    renderHistory();
+  };
+}
+
+// =========================================================
+// 免責モーダル・参加者名入力（統合）
+// =========================================================
+function onAgreeChange() {
+  updateAgreeBtn();
+}
+
+function onNameInput() {
+  const val   = document.getElementById('participant-name-input').value.trim();
+  const input = document.getElementById('participant-name-input');
+  const err   = document.getElementById('name-error');
+  if (val.length > 30) {
+    err.textContent = '30文字以内で入力してください';
+    input.style.borderColor = 'var(--toxic)';
+  } else {
+    err.textContent = '';
+    input.style.borderColor = val.length > 0 ? 'var(--accent2)' : 'var(--border)';
+  }
+  updateAgreeBtn();
+}
+
+function updateAgreeBtn() {
+  const agreed = document.getElementById('agree-check').checked;
+  const name   = document.getElementById('participant-name-input').value.trim();
+  document.getElementById('agree-btn').disabled = !(agreed && name.length > 0 && name.length <= 30);
+}
+
+function startWithName() {
+  const val = document.getElementById('participant-name-input').value.trim();
+  if (!val) return;
+  state.participantName = val;
+  document.getElementById('disclaimer-modal').style.display = 'none';
+  document.getElementById('baseline-modal').style.display = 'flex';
+  requestAnimationFrame(() => initAllRatings(['bq1','bq2','bq3','bq4','bq5']));
+}
+
+function submitBaseline() {
+  state.baselineSurvey = {
+    bq1_positive_voice:  parseInt(document.getElementById('bq1').value),
+    bq2_info_sharing:    parseInt(document.getElementById('bq2').value),
+    bq3_vc_active:       parseInt(document.getElementById('bq3').value),
+    bq4_emotion_ctrl:    parseInt(document.getElementById('bq4').value),
+    bq5_no_blame:        parseInt(document.getElementById('bq5').value),
+    bq6_comment:         document.getElementById('bq6').value.trim(),
+  };
+  document.getElementById('baseline-modal').style.display = 'none';
+  document.getElementById('header-name').textContent = '▸ ' + state.participantName;
+  document.getElementById('player-name-disp').textContent = state.participantName;
+  showToast(`ようこそ、${state.participantName} さん`);
+}
+
+// =========================================================
+// 自己評価アンケート
+// =========================================================
+const SURVEY_QUESTIONS = {
+  post: {
+    phase: '試合後アンケート',
+    title: '試合後の自己評価',
+    desc:  'この試合中の自分のコミュニケーションを振り返ってください。<br>5段階で評価してください（1：全くそう思わない ／ 5：とてもそう思う）',
+    btn:   '回答して記録を保存する',
+    q1: '自分の発言はチームの雰囲気を良くする内容だった',
+    q2: '自分は試合中に有益な情報を共有できていた',
+    q3: '自分は積極的に発言していた',
+    q4: '試合中に感情的な発言をしなかった',
+    q5: 'チームメンバーを批判する発言をしてしまった',
+    q6: 'この試合のコミュニケーションで印象に残ったことがあれば記入してください（任意）',
+  }
+};
+
+function showSurvey(phase) {
+  state.surveyPhase = phase;
+  const q = SURVEY_QUESTIONS[phase];
+
+  document.getElementById('survey-phase').textContent   = q.phase;
+  document.getElementById('survey-title').textContent   = q.title;
+  document.getElementById('survey-desc').innerHTML      = q.desc;
+  document.getElementById('survey-submit-btn').textContent = q.btn;
+
+  // 質問文をセット
+  document.getElementById('ql1').textContent = q.q1;
+  document.getElementById('ql2').textContent = q.q2;
+  document.getElementById('ql3').textContent = q.q3;
+  document.getElementById('ql4').textContent = q.q4;
+  document.getElementById('ql5').textContent = q.q5;
+  document.getElementById('ql6').textContent = q.q6;
+
+  // スライダー・テキストをリセット
+  ['q1','q2','q3','q4','q5'].forEach(id => {
+    document.getElementById(id).value = 3;
+  });
+  document.getElementById('q6').value = '';
+
+  document.getElementById('survey-modal').classList.add('show');
+
+  // バブル・目盛りをリセット後に再描画（レイアウト確定後）
+  requestAnimationFrame(() => initAllRatings(['q1','q2','q3','q4','q5']));
+}
+
+function updateRating(id) {
+  const input = document.getElementById(id);
+  const val   = parseInt(input.value); // 1〜5
+
+  // バブルの位置計算
+  // range の有効幅 = wrap幅 - サム直径(18px) = wrap幅 - 18
+  // 左端のオフセット = サム半径(9px) = 8px(padding) + 1px
+  const wrap    = document.getElementById('wrap-' + id);
+  const wrapW   = wrap.offsetWidth;
+  const thumbR  = 9; // サム半径px
+  const ratio   = (val - 1) / 4;                   // 0〜1
+  const leftPx  = thumbR + ratio * (wrapW - thumbR * 2);
+
+  const bub = document.getElementById('bub-' + id);
+  if (bub) {
+    bub.textContent = val;
+    bub.style.left  = leftPx + 'px';
+  }
+
+  // トラック塗り（0〜100%）
+  const fill = document.getElementById('fill-' + id);
+  if (fill) fill.style.width = (ratio * 100) + '%';
+
+  // 目盛りアクティブ（1〜val を光らせる）
+  for (let i = 1; i <= 5; i++) {
+    const tick = document.getElementById('tick-' + id + '-' + i);
+    if (tick) tick.classList.toggle('active', i <= val);
+  }
+}
+
+// 全スライダーを初期化（表示時に呼ぶ）
+function initAllRatings(ids) {
+  ids.forEach(id => updateRating(id));
+}
+
+function collectSurveyAnswers() {
+  return {
+    q1_atmosphere:  parseInt(document.getElementById('q1').value),
+    q2_info_share:  parseInt(document.getElementById('q2').value),
+    q3_active:      parseInt(document.getElementById('q3').value),
+    q4_no_emotion:  parseInt(document.getElementById('q4').value),
+    q5_no_blame:    parseInt(document.getElementById('q5').value),
+    q6_comment:     document.getElementById('q6').value.trim(),
+  };
+}
+
+function submitSurvey() {
+  const answers = collectSurveyAnswers();
+  document.getElementById('survey-modal').classList.remove('show');
+
+  state.postSurvey = answers;
+  if (state.pendingMatchData) {
+    state.pendingMatchData.postSurvey = answers;
+    _saveMatchData(state.pendingMatchData);
+    state.pendingMatchData = null;
+  }
+}
+
+// =========================================================
+// タイマー
+// =========================================================
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60).toString().padStart(2,'0');
+  const s = (sec % 60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
+
+function startTimer() {
+  state.timerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - state.matchStart) / 1000);
+    document.getElementById('timer').textContent = fmtTime(elapsed);
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(state.timerInterval);
+  state.timerInterval = null;
+}
+
+// =========================================================
+// 試合制御
+// =========================================================
+function genMatchId() {
+  return 'M' + Date.now().toString(36).toUpperCase();
+}
+
+function startMatch() {
+  if (state.inMatch) return;
+
+  state.inMatch    = true;
+  state.matchId    = genMatchId();
+  state.matchStart = Date.now();
+  state.utterances = [];
+  state.counts     = { positive:0, negative:0, toxic:0, neutral:0, callout:0 };
+  state.talkSeconds = 0;
+  state.preSurvey  = null;
+
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-end').disabled   = false;
+
+  setStatus('RECORDING', 'recording');
+  document.getElementById('match-id-disp').textContent = state.matchId;
+
+  clearLog();
+  updateStats();
+  startTimer();
+
+  if (!state.micActive) toggleMic();
+  showToast('試合記録を開始しました');
+}
+
+function endMatch() {
+  if (!state.inMatch) return;
+
+  state.inMatch = false;
+  stopTimer();
+
+  const endTime  = Date.now();
+  const duration = Math.floor((endTime - state.matchStart) / 1000);
+  const total    = state.utterances.length;
+  const talkRatio = duration > 0 ? (state.talkSeconds / duration * 100).toFixed(1) : '0.0';
+
+  // 試合後アンケート送信まで matchData を一時保存
+  state.pendingMatchData = {
+    matchId:         state.matchId,
+    participantName: state.participantName,
+    baselineSurvey:  state.baselineSurvey,
+    startTime:       state.matchStart,
+    endTime:         endTime,
+    duration:        duration,
+    counts:          { ...state.counts },
+    total:           total,
+    talkRatio:       parseFloat(talkRatio),
+    utterances:      [...state.utterances],
+    date:            new Date(state.matchStart).toLocaleString('ja-JP'),
+    preSurvey:       state.preSurvey,
+    postSurvey:      null,
+  };
+
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-end').disabled   = true;
+  document.getElementById('talk-ratio').textContent = talkRatio + '%';
+
+  // 試合後アンケートを表示
+  showSurvey('post');
+}
+
+function _saveMatchData(matchData) {
+  saveMatchToDB(matchData);
+  state.history.unshift(matchData);
+  renderHistory();
+  setStatus('STANDBY', '');
+  showToast(`試合終了 | ${matchData.total}発言 | ${fmtTime(matchData.duration)}`);
+}
+
+// =========================================================
+// 音声認識
+// =========================================================
+// =========================================================
+// Apex専用用語辞書（誤認識補正）
+// 記事・Wiki・SNS投稿をもとに拡充（2025年版）
+// =========================================================
+const APEX_TERMS = {
+
+  // ── ゲーム名・通称 ──
+  'エーペクス': 'Apex', 'エーペックス': 'Apex', 'エペックス': 'Apex',
+  'エペ': 'Apex', 'エイペックス': 'Apex', 'エーペックスレジェンズ': 'Apex Legends',
+
+  // ── レジェンド名（誤認識パターン → 正式表記）──
+  'ブラッドハンド': 'ブラッドハウンド', 'ブラットハウンド': 'ブラッドハウンド',
+  'ブラハン': 'ブラッドハウンド', 'ブラハ': 'ブラッドハウンド',
+  'ジブラルター': 'ジブラルタル', 'ジブ': 'ジブラルタル',
+  'ライフラン': 'ライフライン',
+  'パスファイダー': 'パスファインダー', 'パスファンダー': 'パスファインダー', 'パスファ': 'パスファインダー',
+  'レース': 'レイス',
+  'バンカロール': 'バンガロール', 'バンガ': 'バンガロール',
+  'コスティック': 'コースティック', 'コーステック': 'コースティック',
+  'コスおじ': 'コースティック', 'ガスおじ': 'コースティック', 'ガスおじさん': 'コースティック',
+  'ミラッジュ': 'ミラージュ', 'ミラジュ': 'ミラージュ',
+  'オクタ': 'オクタン',
+  'ワトソン': 'ワットソン', 'ワッソン': 'ワットソン',
+  'クリプ': 'クリプト',
+  'レブナント': 'レヴナント', 'レヴナン': 'レヴナント', 'レブ': 'レヴナント',
+  'ローバー': 'ローバ',
+  'ランパード': 'ランパート', 'ランパト': 'ランパート',
+  'ホライソン': 'ホライゾン',
+  'フューズ': 'ヒューズ',
+  'バルキリー': 'ヴァルキリー', 'ヴァルキリ': 'ヴァルキリー', 'バルキリ': 'ヴァルキリー',
+  'アシュ': 'アッシュ',
+  'マットマギー': 'マッドマギー', 'マドマギー': 'マッドマギー',
+  'ニューキャスル': 'ニューキャッスル', 'ニューキャス': 'ニューキャッスル',
+  'バンテージ': 'ヴァンテージ', 'ヴァンテジ': 'ヴァンテージ',
+  'バリスティク': 'バリスティック',
+  'アルタ': 'アルター',
+
+  // ── 武器カテゴリ略称 ──
+  'アサルトライフル': 'AR', 'エスエムジー': 'SMG', 'ライトマシンガン': 'LMG',
+  'スナイパー': 'スナイパーライフル', 'スナ': 'スナイパーライフル',
+  'ショットガン': 'ショットガン', 'ショトガン': 'ショットガン',
+  'ハンドガン': 'ハンドガン', 'ピストル': 'ハンドガン',
+
+  // ── 武器名（誤認識 → 正式名） ──
+  'スピットファア': 'スピットファイア', 'スピファ': 'スピットファイア',
+  'ディボーション': 'ディヴォーション', 'ディヴォション': 'ディヴォーション', 'ディボ': 'ディヴォーション',
+  'フラットライ': 'フラットライン', 'フラライ': 'フラットライン',
+  'アール301': 'R-301', 'R301': 'R-301', 'さんまるいち': 'R-301',
+  'アール99': 'R-99', 'R99': 'R-99', 'きゅうきゅう': 'R-99',
+  'アルタマール': 'オルタネーター', 'オルタネータ': 'オルタネーター', 'オルタ': 'オルタネーター',
+  'ピースキーパ': 'ピースキーパー', 'ピーキー': 'ピースキーパー', 'PK': 'ピースキーパー',
+  'イーヴィエー8': 'EVA-8', 'EVA8': 'EVA-8', 'エバ': 'EVA-8',
+  'モサンビーク': 'モザンビーク', 'モザンビーグ': 'モザンビーク', 'モザン': 'モザンビーク',
+  'クレーバ': 'クレーバー',
+  'ロングボゥ': 'ロングボウ', 'ロンボウ': 'ロングボウ',
+  'ウイングマン': 'ウィングマン', 'ウイグマン': 'ウィングマン',
+  'アールイー45': 'RE-45', 'RE45': 'RE-45',
+  'ピー2020': 'P2020',
+  'ハボッグ': 'HAVOC', 'ハボック': 'HAVOC',
+  'ランペイジ': 'ランページ',
+  'エルスター': 'L-STAR', 'エルスタ': 'L-STAR',
+  'ヘムロッグ': 'ヘムロック',
+  'トリプルテイ': 'トリプルテイク',
+  'センチネ': 'センチネル',
+  'チャジラ': 'チャージライフル', 'チャージライフ': 'チャージライフル',
+  'ネメシ': 'ネメシス',
+
+  // ── アタッチメント・弾薬 ──
+  'ライトアモ': 'ライト弾', 'ライト弾': 'ライト弾',
+  'ヘビーアモ': 'ヘビー弾', 'ヘビー弾': 'ヘビー弾',
+  'エネアモ': 'エネルギー弾', 'エネルギーアモ': 'エネルギー弾',
+  'スナアモ': 'スナイパー弾',
+  'ショアモ': 'ショットガン弾',
+  'マガジン': 'エクステンデッドマガジン',
+  'スコープ': 'スコープ', 'ホロ': 'ホロサイト',
+  'バレスタ': 'バレルスタビライザー',
+  'ストック': 'ストック',
+  'ボルト': 'ボルト',
+
+  // ── 戦術・立ち回り用語（記事・Wikiより） ──
+  'ノックダン': 'ノックダウン',
+  'リスポン': 'リスポーン',
+  'デスボ': 'デスボックス',
+  '安全地帯': '安置', 'あんち': '安置',
+  'ホットドロ': 'ホットドロップ',
+  'ジャンマス': 'ジャンプマスター', 'ジャンプマスタ': 'ジャンプマスター',
+  'ぎょふ': '漁夫', 'さーどぱーてぃ': '漁夫', 'サードパーティ': '漁夫',
+  'ウルツ': 'アルティメット',
+  'アルティ': 'アルティメット',
+  '戦術アビ': '戦術アビリティ',
+  'グラップル': 'グラップリング',
+  'ジップ': 'ジップライン',
+  'ケアパケ': 'ケアパッケージ',
+  'サプライドロップ': 'ケアパッケージ',
+  'ドームシールド': 'プロテクトドーム',
+  'とつる': '突撃',
+  'ファイナルリン': 'ファイナルリング',
+  'ピング': 'ピン',
+  'ロテ': 'ロテーション', 'ローテーション': 'ロテーション',
+  'ムーヴ': 'ムーブ', 'むーぶ': 'ムーブ',
+  'あんちむーぶ': '安置ムーブ', '安地ムーブ': '安置ムーブ',
+  'きるむーぶ': 'キルムーブ',
+  'フォーカスを合わせる': 'フォーカス', 'フォーカスあわせ': 'フォーカス',
+  'せっせき': '接敵', 'せってき': '接敵',
+  'おにみー': 'オンミー', 'おんみー': 'オンミー',  // 接敵報告
+  'へいとをかう': 'ヘイトを買う', 'ヘイトをかう': 'ヘイトを買う',
+  'あつをかける': '圧をかける',
+  'れれれ': 'レレレ撃ち', 'れれれうち': 'レレレ撃ち',
+  'キャラコン': 'キャラクターコントロール',
+  'フィジカル': 'フィジカル',
+  'ドラッグショット': 'ドラッグショット',
+  'こうくうせん': '空中戦', 'くうちゅうせん': '空中戦',
+  '欠け': 'パーティ欠け',
+  'いちかけ': '1欠け', 'にかけ': '2欠け',
+  'カット': 'カット（キル）',
+  'かぶせ': '被せ', '初動被せ': '被せ',
+  'ぶっし': '物資', '武士': '物資',  // 誤認識対策
+  'こくせん': '黒閃', 'こくぜん': '黒閃',  // ハイド戦術の通称
+  'IGL': 'IGL', 'あいじーえる': 'IGL', 'インゲームリーダー': 'IGL',
+  'オーダー': 'オーダー（IGL）',
+  'フラッガー': 'フラッガー',
+  'ぽじどり': 'ポジ取り', 'ぽじとり': 'ポジ取り',
+  'かくまち': '角待ち',
+  'ばれっじ': 'バレッジ', 'ばれっぢ': 'バレッジ',
+  'おにぎり': 'おにぎりハウス',  // ワールズエッジの建物
+
+  // ── アイテム・回復 ──
+  'アーマ': 'アーマー',
+  'アーマスワップ': 'アーマースワップ', 'アマスワ': 'アーマースワップ',
+  'アーマースワ': 'アーマースワップ',
+  'アーマわれ': 'アーマー割れ', 'あーまわれ': 'アーマー割れ',
+  'アマー交換': 'アーマー交換',
+  'シルセル': 'シールドセル',
+  'シリンジ': '注射器',
+  'メドキット': '医療キット',
+  'アルソク': 'アルティメット促進剤', 'アルスク': 'アルティメット促進剤',
+  'グレネ': 'グレネード',
+  'サーモ': 'サーモバリック手榴弾',
+  'フェニ': 'フェニックスキット',
+  'バット': 'シールドバッテリー',  // 英語圏スラングの和製化
+  'ばっと': 'シールドバッテリー',
+
+  // ── マップ名 ──
+  'キンキャニ': 'キングスキャニオン', 'キングスキャニオン': 'キングスキャニオン',
+  'ワーエジ': 'ワールズエッジ', 'ワールズエッジ': 'ワールズエッジ',
+  'オリンポス': 'オリンパス', 'オリンパス': 'オリンパス',
+  'ストームポイン': 'ストームポイント',
+  'ブロークンムーン': 'ブロークンムーン',
+  'エウェ': 'Eスポーツアリーナ',
+
+  // ── ランク ──
+  'ランクマ': 'ランクマッチ',
+  'カジュアル': 'カジュアルマッチ', 'カジュ': 'カジュアルマッチ',
+  'ダイヤ': 'ダイヤモンド',
+  'プレデ': 'プレデター', 'プレデタ': 'プレデター',
+  'APポイン': 'APポイント',
+
+  // ── 通称・SNSスラング（Apex界隈）──
+  'じーじー': 'GG', 'ggwp': 'GGWP',
+  'ナイチャン': 'ナイスチャンピオン',
+  'ないふぁい': 'ナイスファイト',
+  'バフ': 'バフ（強化）',
+  'ナーフ': 'ナーフ（弱体化）',
+  'ダブハン': 'ダブルハンマー',
+  '縦ハン': '縦ハンマー',
+  'らぐい': 'ラグい', 'ラグい': 'ラグい',
+  'えいむ': 'エイム',
+  'りこいる': 'リコイル',
+  'りこいるせいぎょ': 'リコイル制御',
+  'ADS': 'ADS（スコープ覗き）', 'えーでぃーえす': 'ADS',
+  'こしうち': '腰撃ち',
+  'のら': '野良', 'のらぷれいやー': '野良プレイヤー',
+  'ふれんど': 'フレンド', 'フレ': 'フレンド',
+  'かすたむ': 'カスタムマッチ', 'カスタム': 'カスタムマッチ',
+  'くりえいたー': 'クリエイター',
+  'ALGS': 'ALGS（公式大会）', 'あるごす': 'ALGS',
+  'フィニキャン': 'フィニッシャーキャンセル',
+
+  // ── 戦術・立ち回り用語（記事・Wiki追加分）──
+  'かくさつ': '確殺', '確キル': '確殺', 'かくきる': '確殺',
+  'がんつめ': 'ガン詰め', 'ガン詰め': 'ガン詰め',
+  'インファイ': 'インファイト', 'いんふぁい': 'インファイト',
+  'アウトファイ': 'アウトファイト', 'あうとふぁい': 'アウトファイト',
+  'クラッチ': 'クラッチ（人数不利から勝利）',
+  'さんたて': '3タテ', '3たて': '3タテ',
+  'スウィング': 'スウィング（一斉攻め）',
+  'すうぃんぐ': 'スウィング（一斉攻め）',
+  'スクリム': 'スクリム（練習カスタム）',
+  'すくりむ': 'スクリム（練習カスタム）',
+  'ストレイフ': 'ストレイフ（空中方向転換）',
+  'すとれいふ': 'ストレイフ（空中方向転換）',
+  'タップストレイフ': 'タップストレイフ',
+  'バニーホップ': 'バニーホップ', 'バニホ': 'バニーホップ',
+  'かべじゃん': '壁ジャンプ', '壁ジャン': '壁ジャンプ',
+  'しゅうき': '週記', // 誤認識防止
+  'ラッティング': 'ラッティング（ハイド戦法）',
+  'らってぃんぐ': 'ラッティング（ハイド戦法）',
+  'ゾーンカット': 'ゾーンカット', 'ぞーんかっと': 'ゾーンカット',
+  'ロテーション': 'ロテーション', 'ろてーしょん': 'ロテーション',
+  'あんちそと': '安置外ムーブ', '安置外ムーブ': '安置外ムーブ',
+  'うちむーぶ': '安地内ムーブ', '安地内ムーブ': '安地内ムーブ',
+  'フォーカスあわせ': 'フォーカス', 'フォーカスをあわせる': 'フォーカス',
+  'あつをかける': '圧をかける', '圧かける': '圧をかける',
+  'ヘイトをかう': 'ヘイトを買う', 'へいとをかう': 'ヘイトを買う',
+  'きめうち': '決め撃ち', '決め打ち': '決め打ち',
+  'おいえいむ': '追いエイム', '追いエイム': '追いエイム',
+  'フリックエイム': 'フリックエイム', 'ふりっくえいむ': 'フリックエイム',
+  'えいむあしすと': 'エイムアシスト', 'PADえいむ': 'PADエイム',
+  'クラスパーク': 'クラスパーク', 'くらすぱーく': 'クラスパーク',
+  'おててぽいんと': 'おててポイント（味方キルのRP）',
+  'じゅんいぽいんと': '順位ポイント', '順位ポ': '順位ポイント',
+  'ぶきがちゃ': '武器ガチャ', '武器ガチャ': '武器ガチャ',
+  'ほっとぞーん': 'ホットゾーン', 'ホットゾーン': 'ホットゾーン',
+  'かーごぼっと': 'カーゴボット', 'カーゴボット': 'カーゴボット',
+  'レプリケーター': 'レプリケーター', 'れぷりけーたー': 'レプリケーター',
+  'くらふと': 'クラフト', 'れぷり': 'レプリケーター',
+  'トライデント': 'トライデント（乗り物）', 'とらいでんと': 'トライデント（乗り物）',
+  'ドローン': 'ドローン', 'どろーん': 'ドローン',
+  'ちょーく': 'チョーク（最終安置の絞り込み）', 'チョーク': 'チョーク',
+  'らっちんぐ': 'ラッチング（先行ロテ）', 'ラッチング': 'ラッチング',
+  'ぽーじんぐ': 'ポージング（位置取り）', 'ポージング': 'ポージング',
+
+  // ── ステータス・戦況報告 ──
+  'ろう': 'ロウ（HP少）', 'げきろう': '激ロウ', 'ローhp': 'ロウ（HP少）',
+  'にくだめ': '肉ダメ（実HP）', 'にくかいふく': '肉回復',
+  'したかいふく': '下回復（HP回復）', 'したまわ': '下回復',
+  'うえかいふく': '上回復（シールド回復）',
+  'あーまーわれ': 'アーマー割れ',
+  'かっぱけっそ': 'アーマー割れ（韓国語由来スラング）',
+  'いちかけ': '1欠け', 'にかけ': '2欠け', 'さんかけ': '3欠け（全員ダウン）',
+  '1欠け': '1欠け', '2欠け': '2欠け',
+  'そろ': 'ソロ残り', 'ひとりのこり': 'ソロ残り',
+  'どういち': '同一部隊', 'どういつぶたい': '同一部隊',
+  'はなれてる': '部隊分散', 'ちりぢり': '部隊分散',
+
+  // ── マップ地名・ランドマーク ──
+  'いしつぶて': 'イシツブテハウス（ワールズエッジ）',
+  'もり': '森エリア', 'もりちほう': '森地帯',
+  'さいとう': 'サイトウ（マップ地名）',
+  'ばざー': 'バザー', 'ばざーる': 'バザール',
+  'さーかす': 'サーカス',
+  'まっちょまん': 'マッチョマンタワー', // ブロークンムーン通称
+  'たいかいしょうりょく': '対外省力',
+
+  // ── eスポーツ・大会用語 ──
+  'えーえるじーえす': 'ALGS',
+  'あるごす': 'ALGS',
+  'えーえるじーえす世界大会': 'ALGS Championship',
+  'えだぶりゅしー': 'EWC（eスポーツワールドカップ）',
+  'えーえるじーえすぷろりーぐ': 'ALGSプロリーグ',
+  'おふらいんたいかい': 'オフライン大会',
+  'おぶざーばー': 'オブザーバー（観戦ユーザー）',
+  'TTK': 'TTK（キルタイム）', 'てぃーてぃーけー': 'TTK',
+  'KD': 'K/D', 'けーでぃー': 'K/D',
+  'RP': 'RP（ランクポイント）', 'あーるぴー': 'RP',
+  'LFG': 'LFG（メンバー募集）', 'えるえふじー': 'LFG',
+  'ぶーすてぃんぐ': 'ブースティング（不正ランク上げ）',
+  'こだわりタグ': 'こだわりタグ',
+  'さかぼっと': '坂ポット（建物の通称）',
+  'えーえいあい': 'AI', 'てぃーえーあい': 'AI',
+
+  // ── プラットフォーム・配信用語 ──
+  'すとりーまー': 'ストリーマー',
+  'はいらいと': 'ハイライト',
+  'くりっぷ': 'クリップ（プレイ動画）',
+  'もんたーじゅ': 'モンタージュ',
+  'らいぶはいしん': 'ライブ配信',
+  'おぷれ': 'OPENREC',
+  'OPENREC': 'OPENREC', 'おーぷんれく': 'OPENREC',
+  'さぶ': 'サブスクリプション', 'サブ': 'サブスクリプション',
+  'あかかく': '赤確（確定チャンピオン）',
+};
+
+function applyApexCorrection(text) {
+  let result = text;
+  for (const [wrong, correct] of Object.entries(APEX_TERMS)) {
+    result = result.replaceAll(wrong, correct);
+  }
+  return result;
+}
+
+// =========================================================
+// 信頼度しきい値
+// =========================================================
+let CONFIDENCE_THRESHOLD = 0.6;
+
+function onThresholdChange(val) {
+  CONFIDENCE_THRESHOLD = val / 10;
+  document.getElementById('threshold-disp').textContent = CONFIDENCE_THRESHOLD.toFixed(1);
+}
+
+// =========================================================
+// 音声認識（強化版）
+// =========================================================
+let retryTimer = null;
+let noSpeechCount = 0;
+let waveAnimFrame = null;
+let isSpeaking = false;
+
+function toggleMic() {
+  if (state.micActive) { stopMic(); } else { startMic(); }
+}
+
+// 波形アニメ：発話中はランダムに揺れる、無音時は静止
+function startWaveAnimation() {
+  const bars = document.querySelectorAll('.wave-bar');
+  function draw() {
+    waveAnimFrame = requestAnimationFrame(draw);
+    bars.forEach(bar => {
+      if (isSpeaking) {
+        const h = 6 + Math.random() * 24;
+        bar.style.height = h + 'px';
+        bar.style.opacity = '1';
+      } else {
+        bar.style.height = '4px';
+        bar.style.opacity = '0.3';
+      }
+    });
+  }
+  draw();
+}
+
+function stopWaveAnimation() {
+  if (waveAnimFrame) { cancelAnimationFrame(waveAnimFrame); waveAnimFrame = null; }
+  isSpeaking = false;
+  document.querySelectorAll('.wave-bar').forEach(b => {
+    b.style.height = '4px'; b.style.opacity = '0.3';
+  });
+}
+
+function startMic() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showToast('このブラウザは音声認識をサポートしていません（Chrome推奨）', true);
+    return;
+  }
+
+  // 既にインスタンスがあれば使い回す（許可ダイアログを出さないため）
+  if (!state.recognition) {
+    const rec = new SpeechRecognition();
+    rec.lang            = 'ja-JP';
+    rec.continuous      = true;
+    rec.interimResults  = true;
+    rec.maxAlternatives = 5;
+
+    rec.onstart = () => {
+      if (!waveAnimFrame) startWaveAnimation();
+    };
+
+    rec.onsoundstart = () => { isSpeaking = true; };
+    rec.onsoundend   = () => { isSpeaking = false; };
+    rec.onspeechend  = () => { isSpeaking = false; };
+
+    rec.onresult = (e) => {
+      noSpeechCount = 0;
+      hideRetry();
+      isSpeaking = true;
+
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          isSpeaking = false;
+          const best = selectBestAlternative(r);
+          if (!best) continue;
+
+          const pct = Math.round(best.confidence * 100);
+          document.getElementById('confidence-val').textContent = pct + '%';
+          document.getElementById('confidence-val').style.color =
+            pct >= 80 ? 'var(--positive)' : pct >= 60 ? 'var(--accent)' : 'var(--negative)';
+
+          const corrected = applyApexCorrection(best.transcript.trim());
+          if (corrected) onFinalSpeech(corrected, best.confidence);
+        } else {
+          interim += applyApexCorrection(r[0].transcript);
+        }
+      }
+
+      const box = document.getElementById('interim-box');
+      if (interim) {
+        box.textContent = interim;
+        box.classList.add('has-text');
+      } else {
+        box.textContent = '認識中...';
+        box.classList.remove('has-text');
+      }
+    };
+
+    rec.onerror = (e) => {
+      isSpeaking = false;
+      if (e.error === 'no-speech') {
+        noSpeechCount++;
+        if (noSpeechCount >= 3) { showRetry(); noSpeechCount = 0; }
+        return;
+      }
+      if (e.error === 'not-allowed') {
+        showToast('マイクへのアクセスが許可されていません', true);
+        stopMic(); return;
+      }
+      console.warn('SpeechRecognition error:', e.error);
+    };
+
+    // 同じインスタンスで restart（新規作成しない）
+    rec.onend = () => {
+      isSpeaking = false;
+      if (state.micActive) {
+        retryTimer = setTimeout(() => {
+          if (state.micActive) {
+            try { state.recognition.start(); } catch(e) { console.warn('restart error:', e); }
+          }
+        }, 200);
+      }
+    };
+
+    state.recognition = rec;
+  }
+
+  try {
+    state.recognition.start();
+  } catch(e) {
+    console.warn('start error:', e);
+  }
+  state.micActive = true;
+
+  const btn = document.getElementById('btn-mic');
+  btn.textContent = '🎤 マイク停止';
+  btn.classList.add('listening');
+  setStatus(state.inMatch ? 'RECORDING' : 'ACTIVE', state.inMatch ? 'recording' : 'active');
+}
+
+// 複数候補から信頼度しきい値を超えた最良候補を選択
+function selectBestAlternative(result) {
+  let best = null;
+  for (let j = 0; j < result.length; j++) {
+    const alt = result[j];
+    if (alt.confidence >= CONFIDENCE_THRESHOLD) {
+      if (!best || alt.confidence > best.confidence) best = alt;
+    }
+  }
+  // 全候補がしきい値以下でも confidence=0（値なし）の場合はそのまま通す
+  if (!best && result[0].confidence === 0) best = result[0];
+  return best;
+}
+
+// 再認識インジケーター
+function showRetry() {
+  document.getElementById('retry-indicator').style.display = 'block';
+  document.getElementById('interim-box').textContent = '音声を検出できませんでした。もう一度話しかけてください。';
+}
+function hideRetry() {
+  document.getElementById('retry-indicator').style.display = 'none';
+}
+
+function stopMic() {
+  clearTimeout(retryTimer);
+  if (state.recognition) {
+    // onend を一時的に無効化してから stop（再起動ループを防ぐ）
+    state.recognition.onend = null;
+    try { state.recognition.stop(); } catch(e) {}
+    // インスタンスは破棄しない（次回 start() で再利用するため）
+    // ただし onend を復元しておく
+    setTimeout(() => {
+      if (state.recognition) {
+        state.recognition.onend = () => {
+          isSpeaking = false;
+          if (state.micActive) {
+            retryTimer = setTimeout(() => {
+              if (state.micActive) {
+                try { state.recognition.start(); } catch(e) { console.warn('restart error:', e); }
+              }
+            }, 200);
+          }
+        };
+      }
+    }, 300);
+  }
+  state.micActive = false;
+  noSpeechCount   = 0;
+  hideRetry();
+  stopWaveAnimation();
+
+  const btn = document.getElementById('btn-mic');
+  btn.textContent = '🎤 マイク開始';
+  btn.classList.remove('listening');
+
+  document.getElementById('interim-box').textContent = '音声認識を開始してください...';
+  document.getElementById('interim-box').classList.remove('has-text');
+  document.getElementById('confidence-val').textContent = '——';
+
+  if (!state.inMatch) setStatus('STANDBY', '');
+}
+
+function onFinalSpeech(text, confidence = 1) {
+  document.getElementById('interim-box').textContent = text;
+  document.getElementById('interim-box').classList.add('has-text');
+
+  if (state.inMatch) {
+    const category = classify(text);
+    const now = new Date();
+    state.utterances.push({ time: now, text, category, confidence: Math.round(confidence * 100) });
+    state.counts[category]++;
+    state.talkSeconds += Math.max(1, text.length * 0.12);
+    updateStats();
+    addLogItem({ time: now, text, category, confidence: Math.round(confidence * 100) });
+  }
+}
+
+// =========================================================
+// UI 更新
+// =========================================================
+function setStatus(label, cls) {
+  document.getElementById('status-text').textContent = label;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot' + (cls ? ' ' + cls : '');
+}
+
+function updateStats() {
+  const { counts, utterances } = state;
+  const total = utterances.length;
+  const max   = Math.max(1, total);
+
+  ['positive','negative','toxic','neutral','callout'].forEach(cat => {
+    const n = counts[cat];
+    document.getElementById('cnt-' + cat).textContent = n;
+    document.getElementById('bar-' + cat).style.width = (n / max * 100) + '%';
+  });
+
+  document.getElementById('total-count').textContent = total + ' 発言';
+
+  if (state.matchStart) {
+    const dur = Math.floor((Date.now() - state.matchStart) / 1000);
+    const ratio = dur > 0 ? (state.talkSeconds / dur * 100).toFixed(1) : '0.0';
+    document.getElementById('talk-ratio').textContent = ratio + '%';
+  }
+}
+
+function clearLog() {
+  const list = document.getElementById('log-list');
+  list.innerHTML = '<li class="empty-msg empty-log" id="empty-msg">── 発言なし ──</li>';
+}
+
+function addLogItem({ time, text, category, confidence }) {
+  const list = document.getElementById('log-list');
+  const empty = document.getElementById('empty-msg');
+  if (empty) empty.remove();
+
+  const catLabel = { positive:'POSITIVE', negative:'NEGATIVE', toxic:'TOXIC', neutral:'NEUTRAL', callout:'CALLOUT' };
+  const t = time.toTimeString().slice(0,8);
+  const confStr = confidence != null ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);margin-left:6px;">${confidence}%</span>` : '';
+
+  const li = document.createElement('li');
+  li.className = 'log-item ' + category;
+  li.innerHTML = `
+    <span class="log-time">${t}</span>
+    <span class="log-cat">${catLabel[category]}${confStr}</span>
+    <span class="log-text">${escHtml(text)}</span>
+  `;
+  list.prepend(li);
+}
+
+// =========================================================
+// 履歴レンダリング
+// =========================================================
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (state.history.length === 0) {
+    el.innerHTML = '<div style="text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);padding:20px;letter-spacing:2px">── 試合履歴なし ──</div>';
+    return;
+  }
+  el.innerHTML = state.history.map((m, i) => `
+    <div class="history-item">
+      <span style="color:var(--accent);">${escHtml(m.participantName || '——')}</span>
+      <span class="history-match-id">${m.matchId}</span>
+      <span class="history-duration">${fmtTime(m.duration)}</span>
+      <span class="history-p">${m.counts.positive}</span>
+      <span class="history-n">${m.counts.negative}</span>
+      <span class="history-t">${m.counts.toxic}</span>
+      <span class="history-neu">${m.counts.neutral}</span>
+      <span class="history-ratio">${m.talkRatio}%</span>
+      <span class="history-date">${m.date}</span>
+      <button class="btn-export" onclick="exportCSV(${i})">CSV</button>
+    </div>
+  `).join('');
+}
+
+// =========================================================
+// CSV エクスポート
+// =========================================================
+function exportCSV(historyIndex) {
+  const m = state.history[historyIndex];
+  if (!m) return;
+
+  const rows = [];
+  rows.push(['【試合統計】']);
+  rows.push(['参加者名', m.participantName || '']);
+  rows.push(['試合ID', m.matchId]);
+  rows.push(['開始時刻', new Date(m.startTime).toLocaleString('ja-JP')]);
+  rows.push(['終了時刻', new Date(m.endTime).toLocaleString('ja-JP')]);
+  rows.push(['試合時間', fmtTime(m.duration)]);
+  rows.push(['総発言数', m.total]);
+  rows.push(['ポジティブ', m.counts.positive]);
+  rows.push(['ネガティブ', m.counts.negative]);
+  rows.push(['暴言', m.counts.toxic]);
+  rows.push(['ニュートラル', m.counts.neutral]);
+  rows.push(['声掛け', m.counts.callout || 0]);
+  rows.push(['発話率', m.talkRatio + '%']);
+
+  // 自己評価（ベースライン：ログイン時）
+  rows.push([]);
+  rows.push(['【自己評価：普段のプレイ（ログイン時）】']);
+  const bLabels = [
+    'Q1_ポジティブな声掛け',
+    'Q2_情報共有',
+    'Q3_VC積極性',
+    'Q4_感情コントロール',
+    'Q5_チームを責めない',
+    'Q6_コメント'
+  ];
+  const bs = m.baselineSurvey;
+  if (bs) {
+    rows.push([bLabels[0], bs.bq1_positive_voice]);
+    rows.push([bLabels[1], bs.bq2_info_sharing]);
+    rows.push([bLabels[2], bs.bq3_vc_active]);
+    rows.push([bLabels[3], bs.bq4_emotion_ctrl]);
+    rows.push([bLabels[4], bs.bq5_no_blame]);
+    rows.push([bLabels[5], bs.bq6_comment]);
+  } else {
+    rows.push(['データなし', '']);
+  }
+  rows.push([]);
+  rows.push(['【自己評価：試合前】']);
+  const preLabels = [
+    'Q1_雰囲気を良くできそう',
+    'Q2_情報共有できそう',
+    'Q3_積極的に発言できそう',
+    'Q4_感情的にならないと思う',
+    'Q5_批判しないと思う',
+    'Q6_コメント'
+  ];
+  const postLabels = [
+    'Q1_雰囲気を良くする発言だった',
+    'Q2_有益な情報を共有できていた',
+    'Q3_積極的に発言していた',
+    'Q4_感情的な発言をしなかった',
+    'Q5_チームを批判する発言をしてしまった',
+    'Q6_印象に残ったこと'
+  ];
+  if (m.preSurvey) {
+    rows.push([preLabels[0], m.preSurvey.q1_atmosphere]);
+    rows.push([preLabels[1], m.preSurvey.q2_info_share]);
+    rows.push([preLabels[2], m.preSurvey.q3_active]);
+    rows.push([preLabels[3], m.preSurvey.q4_no_emotion]);
+    rows.push([preLabels[4], m.preSurvey.q5_no_blame]);
+    rows.push([preLabels[5], m.preSurvey.q6_comment]);
+  } else {
+    rows.push(['データなし', '']);
+  }
+
+  // 自己評価（試合後）
+  rows.push([]);
+  rows.push(['【自己評価：試合後】']);
+  if (m.postSurvey) {
+    rows.push([postLabels[0], m.postSurvey.q1_atmosphere]);
+    rows.push([postLabels[1], m.postSurvey.q2_info_share]);
+    rows.push([postLabels[2], m.postSurvey.q3_active]);
+    rows.push([postLabels[3], m.postSurvey.q4_no_emotion]);
+    rows.push([postLabels[4], m.postSurvey.q5_no_blame]);
+    rows.push([postLabels[5], m.postSurvey.q6_comment]);
+  } else {
+    rows.push(['データなし', '']);
+  }
+
+  // 前後ギャップ比較（数値項目のみ）
+  if (m.preSurvey && m.postSurvey) {
+    rows.push([]);
+    rows.push(['【前後ギャップ（試合後 − 試合前）】']);
+    rows.push([postLabels[0], m.postSurvey.q1_atmosphere - m.preSurvey.q1_atmosphere]);
+    rows.push([postLabels[1], m.postSurvey.q2_info_share  - m.preSurvey.q2_info_share]);
+    rows.push([postLabels[2], m.postSurvey.q3_active      - m.preSurvey.q3_active]);
+    rows.push([postLabels[3], m.postSurvey.q4_no_emotion  - m.preSurvey.q4_no_emotion]);
+    rows.push([postLabels[4], m.postSurvey.q5_no_blame    - m.preSurvey.q5_no_blame]);
+  }
+  rows.push([]);
+  rows.push(['【発言ログ】']);
+  rows.push(['#','参加者名','時刻','発言テキスト','分類']);
+
+  const catJp = { positive:'ポジティブ', negative:'ネガティブ', toxic:'暴言', neutral:'ニュートラル', callout:'声掛け' };
+  m.utterances.forEach((u, i) => {
+    const t = new Date(u.time).toTimeString().slice(0,8);
+    rows.push([i+1, m.participantName || '', t, u.text, catJp[u.category] || u.category]);
+  });
+
+  // UTF-8 BOM付き（Google Sheets / Excel対応）
+  const bom = '\uFEFF';
+  const csv = bom + rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  const safeName = (m.participantName || 'unknown').replace(/[^\w\u3040-\u9fff]/g, '_');
+  a.download = `apex_${safeName}_${m.matchId}_${new Date(m.startTime).toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  showToast('CSVをエクスポートしました');
+}
+
+// =========================================================
+// トースト
+// =========================================================
+let toastTimer = null;
+function showToast(msg, isErr = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// =========================================================
+// 初期化
+// =========================================================
+(async () => {
+  await initDB();
+  loadHistoryFromDB();
+  setStatus('STANDBY', '');
+})();
+</script>
+</body>
+</html>
