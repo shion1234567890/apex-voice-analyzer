@@ -1680,98 +1680,87 @@ function startMic() {
     showToast('このブラウザは音声認識をサポートしていません（Chrome推奨）', true);
     return;
   }
+  _createAndStart(SpeechRecognition);
+}
 
-  // 既にインスタンスがあれば使い回す（許可ダイアログを出さないため）
-  if (!state.recognition) {
-    const rec = new SpeechRecognition();
-    rec.lang            = 'ja-JP';
-    rec.continuous      = true;
-    rec.interimResults  = true;
-    rec.maxAlternatives = 5;
+function _createAndStart(SpeechRecognition) {
+  const rec = new SpeechRecognition();
+  rec.lang            = 'ja-JP';
+  rec.continuous      = true;
+  rec.interimResults  = true;
+  rec.maxAlternatives = 5;
 
-    rec.onstart = () => {
-      if (!waveAnimFrame) startWaveAnimation();
-    };
+  rec.onstart = () => {
+    if (!waveAnimFrame) startWaveAnimation();
+  };
 
-    rec.onsoundstart = () => { isSpeaking = true; };
-    rec.onsoundend   = () => { isSpeaking = false; };
-    rec.onspeechend  = () => { isSpeaking = false; };
+  rec.onsoundstart = () => { isSpeaking = true; };
+  rec.onsoundend   = () => { isSpeaking = false; };
+  rec.onspeechend  = () => { isSpeaking = false; };
 
-    rec.onresult = (e) => {
-      noSpeechCount = 0;
-      hideRetry();
-      isSpeaking = true;
+  rec.onresult = (e) => {
+    noSpeechCount = 0;
+    hideRetry();
+    isSpeaking = true;
 
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) {
-          isSpeaking = false;
-          const best = selectBestAlternative(r);
-          if (!best) continue;
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) {
+        isSpeaking = false;
+        const best = selectBestAlternative(r);
+        if (!best) continue;
 
-          const pct = Math.round(best.confidence * 100);
-          document.getElementById('confidence-val').textContent = pct + '%';
-          document.getElementById('confidence-val').style.color =
-            pct >= 80 ? 'var(--positive)' : pct >= 60 ? 'var(--accent)' : 'var(--negative)';
+        const pct = Math.round(best.confidence * 100);
+        document.getElementById('confidence-val').textContent = pct + '%';
+        document.getElementById('confidence-val').style.color =
+          pct >= 80 ? 'var(--positive)' : pct >= 60 ? 'var(--accent)' : 'var(--negative)';
 
-          const corrected = applyApexCorrection(best.transcript.trim());
-          if (corrected) onFinalSpeech(corrected, best.confidence);
-        } else {
-          interim += applyApexCorrection(r[0].transcript);
-        }
-      }
-
-      const box = document.getElementById('interim-box');
-      if (interim) {
-        box.textContent = interim;
-        box.classList.add('has-text');
+        const corrected = applyApexCorrection(best.transcript.trim());
+        if (corrected) onFinalSpeech(corrected, best.confidence);
       } else {
-        box.textContent = '認識中...';
-        box.classList.remove('has-text');
+        interim += applyApexCorrection(r[0].transcript);
       }
-    };
+    }
 
-    rec.onerror = (e) => {
-      isSpeaking = false;
-      if (e.error === 'no-speech') {
-        noSpeechCount++;
-        if (noSpeechCount >= 3) { showRetry(); noSpeechCount = 0; }
-        return;
-      }
-      if (e.error === 'not-allowed') {
-        showToast('マイクへのアクセスが許可されていません', true);
-        stopMic(); return;
-      }
-      console.warn('SpeechRecognition error:', e.error);
-    };
+    const box = document.getElementById('interim-box');
+    if (interim) {
+      box.textContent = interim;
+      box.classList.add('has-text');
+    } else {
+      box.textContent = '認識中...';
+      box.classList.remove('has-text');
+    }
+  };
 
-    // 同じインスタンスで restart（新規作成しない）
-    rec.onend = () => {
-      isSpeaking = false;
-      if (state.micActive) {
-        retryTimer = setTimeout(() => {
-          if (state.micActive) {
-            try { state.recognition.start(); } catch(e) { console.warn('restart error:', e); }
-          }
-        }, 200);
-      }
-    };
+  rec.onerror = (e) => {
+    isSpeaking = false;
+    if (e.error === 'no-speech') {
+      noSpeechCount++;
+      if (noSpeechCount >= 3) { showRetry(); noSpeechCount = 0; }
+      return;
+    }
+    if (e.error === 'not-allowed') {
+      showToast('マイクへのアクセスが許可されていません', true);
+      stopMic(); return;
+    }
+    // aborted など一時的なエラーは無視（onend で自動再起動される）
+  };
 
-    state.recognition = rec;
-  }
+  rec.onend = () => {
+    isSpeaking = false;
+    if (state.micActive) {
+      retryTimer = setTimeout(() => {
+        if (state.micActive) {
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          _createAndStart(SR);
+        }
+      }, 150);
+    }
+  };
 
-  try {
-    state.recognition.start();
-  } catch(e) {
-    console.warn('start error:', e);
-  }
-  state.micActive = true;
-
-  const btn = document.getElementById('btn-mic');
-  btn.textContent = '🎤 マイク停止';
-  btn.classList.add('listening');
-  setStatus(state.inMatch ? 'RECORDING' : 'ACTIVE', state.inMatch ? 'recording' : 'active');
+  state.recognition = rec;
+  rec.start();
 }
 
 // 複数候補から信頼度しきい値を超えた最良候補を選択
@@ -1800,28 +1789,13 @@ function hideRetry() {
 function stopMic() {
   clearTimeout(retryTimer);
   if (state.recognition) {
-    // onend を一時的に無効化してから stop（再起動ループを防ぐ）
     state.recognition.onend = null;
     try { state.recognition.stop(); } catch(e) {}
-    // インスタンスは破棄しない（次回 start() で再利用するため）
-    // ただし onend を復元しておく
-    setTimeout(() => {
-      if (state.recognition) {
-        state.recognition.onend = () => {
-          isSpeaking = false;
-          if (state.micActive) {
-            retryTimer = setTimeout(() => {
-              if (state.micActive) {
-                try { state.recognition.start(); } catch(e) { console.warn('restart error:', e); }
-              }
-            }, 200);
-          }
-        };
-      }
-    }, 300);
+    state.recognition = null;
   }
   state.micActive = false;
   noSpeechCount   = 0;
+  isSpeaking      = false;
   hideRetry();
   stopWaveAnimation();
 
