@@ -325,7 +325,9 @@
   .modal-box {
     background: var(--panel); border: 1px solid var(--border);
     border-top: 2px solid var(--accent);
-    width: min(560px, 94vw); padding: 36px;
+    width: min(560px, 94vw);
+    max-height: 92vh; overflow-y: auto;
+    padding: 36px;
     clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
     animation: modalIn 0.4s ease;
   }
@@ -383,12 +385,82 @@
   #toast.show { transform: translateX(0); }
   #toast.err  { border-left-color: var(--toxic); color: var(--toxic); }
 
-  /* ── レスポンシブ ── */
+  /* ── レスポンシブ（スマホ対応） ── */
   @media (max-width: 768px) {
-    .main-grid { grid-template-columns: 1fr; }
+    #app { padding: 10px; }
+
+    header {
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+    }
+    .logo { font-size: 22px; letter-spacing: 2px; }
+    .logo span { font-size: 11px; letter-spacing: 3px; }
+    .header-status { font-size: 12px; }
+
+    /* 1カラム縦並び */
+    .main-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      gap: 10px;
+    }
     #control-panel { grid-row: auto; }
-    .history-item,.history-header { grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; }
+
+    /* タイマー小さく */
+    .match-timer { font-size: 32px; }
+
+    /* ボタン大きく（タップしやすく） */
+    .btn { font-size: 20px; padding: 18px 0; margin-bottom: 8px; }
+    .btn-mic { font-size: 18px; padding: 16px 0; }
+
+    /* 波形 */
+    .wave-bars { margin: 6px 0; }
+
+    /* パネル */
+    .panel { padding: 14px; }
+    .panel-title { font-size: 12px; letter-spacing: 3px; margin-bottom: 12px; }
+
+    /* stats */
+    .stat-label { font-size: 11px; letter-spacing: 1px; }
+    .stat-count { font-size: 15px; min-width: 28px; }
+
+    /* info-row */
+    .info-key { font-size: 11px; }
+    .info-val { font-size: 13px; }
+
+    /* ログ */
+    .log-item { font-size: 14px; padding: 8px 10px; gap: 6px;
+      grid-template-columns: 52px 80px 1fr; }
+    .log-time { font-size: 12px; }
+    .log-cat  { font-size: 11px; }
+
+    /* 履歴 */
+    .history-item,.history-header {
+      grid-template-columns: 1fr 1fr 1fr auto;
+      font-size: 11px;
+    }
     .history-match-id,.history-ratio,.history-date { display: none; }
+    .history-cell { padding: 8px 6px; }
+
+    /* interim-box */
+    .interim-box { font-size: 15px; min-height: 50px; padding: 12px; }
+
+    /* toast */
+    #toast { bottom: 16px; right: 10px; left: 10px; max-width: none;
+      font-size: 13px; padding: 10px 14px; }
+
+    /* モーダル */
+    .modal-box { padding: 20px 16px; }
+    .modal-title { font-size: 22px; }
+    .survey-box { padding: 20px 16px !important; }
+    .survey-label { font-size: 14px; }
+  }
+
+  /* さらに小さい画面（iPhone SE等） */
+  @media (max-width: 390px) {
+    .logo { font-size: 18px; }
+    .btn { font-size: 18px; padding: 16px 0; }
+    .match-timer { font-size: 28px; }
   }
 
   /* ── マイク波形アニメ ── */
@@ -564,6 +636,7 @@
     <ul class="disclaimer-list">
       <li><strong>音声保存なし</strong> — 音声データは録音・保存しません。テキスト認識結果のみブラウザ内に保存されます。</li>
       <li><strong>誤認識の可能性</strong> — 音声認識（Web Speech API）には誤認識が発生する場合があります。認識精度を保証しません。</li>
+      <li><strong>推奨環境</strong> — スマートフォンで使用する場合は <strong style="color:var(--accent)">Chrome</strong> を使用してください。iPhoneのSafariでは動作しない場合があります。</li>
       <li><strong>ゲーム規約</strong> — 本ツールとApex Legendsの利用規約との互換性は保証しません。</li>
       <li><strong>自己責任</strong> — 本ツールの使用により生じたいかなる損害についても作者は責任を負いません。</li>
     </ul>
@@ -583,7 +656,35 @@
       oninput="onNameInput()"
       onkeydown="if(event.key==='Enter') startWithName()"
     >
-    <div id="name-error" style="font-family:var(--font-mono);font-size:11px;color:var(--toxic);min-height:18px;margin-bottom:10px;"></div>
+    <div id="name-error" style="font-family:var(--font-mono);font-size:11px;color:var(--toxic);min-height:18px;margin-bottom:14px;"></div>
+
+    <div style="margin-bottom:8px; font-family:var(--font-mono); font-size:10px; color:var(--accent); letter-spacing:2px;">パーティ人数</div>
+    <div style="display:flex; gap:10px; margin-bottom:16px;">
+      <button id="party-btn-1" onclick="selectPartySize(1)"
+        style="flex:1; padding:12px 0; background:linear-gradient(135deg,#003344,#004455);
+        color:var(--accent); border:1px solid rgba(0,212,255,0.4);
+        font-family:var(--font-hud); font-size:18px; font-weight:700;
+        letter-spacing:2px; cursor:pointer; transition:all 0.2s;
+        clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">
+        1人
+      </button>
+      <button id="party-btn-2" onclick="selectPartySize(2)"
+        style="flex:1; padding:12px 0; background:linear-gradient(135deg,#003344,#004455);
+        color:var(--accent); border:1px solid rgba(0,212,255,0.4);
+        font-family:var(--font-hud); font-size:18px; font-weight:700;
+        letter-spacing:2px; cursor:pointer; transition:all 0.2s;
+        clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">
+        2人
+      </button>
+      <button id="party-btn-3" onclick="selectPartySize(3)"
+        style="flex:1; padding:12px 0; background:linear-gradient(135deg,#003344,#004455);
+        color:var(--accent); border:1px solid rgba(0,212,255,0.4);
+        font-family:var(--font-hud); font-size:18px; font-weight:700;
+        letter-spacing:2px; cursor:pointer; transition:all 0.2s;
+        clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);">
+        3人
+      </button>
+    </div>
 
     <label class="checkbox-row">
       <input type="checkbox" id="agree-check" onchange="onAgreeChange()">
@@ -917,6 +1018,7 @@
 
       <div class="divider"></div>
       <div class="info-row"><span class="info-key">PLAYER</span><span class="info-val" id="player-name-disp">——</span></div>
+      <div class="info-row"><span class="info-key">MATCH</span><span class="info-val" id="match-progress-disp">——</span></div>
       <div class="info-row"><span class="info-key">TOTAL</span><span class="info-val" id="total-count">0 発言</span></div>
       <div class="info-row"><span class="info-key">TALK RATIO</span><span class="info-val" id="talk-ratio">0.0%</span></div>
       <div class="info-row"><span class="info-key">MATCH ID</span><span class="info-val" id="match-id-disp">——</span></div>
@@ -1081,6 +1183,8 @@ function classify(text) {
 // =========================================================
 const state = {
   participantName: '',
+  partySize: null,         // 1, 2 or 3
+  matchCount: 0,           // 現在の試合番号（ログインごとにリセット）
   baselineSurvey: null,    // ログイン時の普段の自己評価
   inMatch: false,
   matchId: null,
@@ -1134,6 +1238,23 @@ function loadHistoryFromDB() {
 // =========================================================
 // 免責モーダル・参加者名入力（統合）
 // =========================================================
+function selectPartySize(n) {
+  state.partySize = n;
+  [1, 2, 3].forEach(i => {
+    const btn = document.getElementById('party-btn-' + i);
+    if (i === n) {
+      btn.style.background = 'linear-gradient(135deg,#004422,#006633)';
+      btn.style.color = 'var(--positive)';
+      btn.style.borderColor = 'rgba(0,255,136,0.4)';
+    } else {
+      btn.style.background = 'linear-gradient(135deg,#003344,#004455)';
+      btn.style.color = 'var(--accent)';
+      btn.style.borderColor = 'rgba(0,212,255,0.4)';
+    }
+  });
+  updateAgreeBtn();
+}
+
 function onAgreeChange() {
   updateAgreeBtn();
 }
@@ -1155,13 +1276,16 @@ function onNameInput() {
 function updateAgreeBtn() {
   const agreed = document.getElementById('agree-check').checked;
   const name   = document.getElementById('participant-name-input').value.trim();
-  document.getElementById('agree-btn').disabled = !(agreed && name.length > 0 && name.length <= 30);
+  const hasParty = state.partySize !== null;
+  document.getElementById('agree-btn').disabled = !(agreed && name.length > 0 && name.length <= 30 && hasParty);
 }
 
 function startWithName() {
   const val = document.getElementById('participant-name-input').value.trim();
-  if (!val) return;
+  if (!val || !state.partySize) return;
   state.participantName = val;
+  state.matchCount = 0; // ログインごとにリセット
+  document.getElementById('match-progress-disp').textContent = '0 / 10';
   document.getElementById('disclaimer-modal').style.display = 'none';
   document.getElementById('baseline-modal').style.display = 'flex';
   requestAnimationFrame(() => initAllRatings(['bq1','bq2','bq3','bq4','bq5']));
@@ -1309,6 +1433,27 @@ function stopTimer() {
 }
 
 // =========================================================
+// スリープ防止（スマホ対応）Wake Lock API
+// =========================================================
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e) { console.warn('WakeLock:', e); }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+}
+
+// ページ復帰時に再取得
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.inMatch) requestWakeLock();
+});
+
+// =========================================================
 // 試合制御
 // =========================================================
 function genMatchId() {
@@ -1325,18 +1470,21 @@ function startMatch() {
   state.counts     = { positive:0, negative:0, toxic:0, neutral:0, callout:0 };
   state.talkSeconds = 0;
   state.preSurvey  = null;
+  state.matchCount++;
 
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-end').disabled   = false;
 
   setStatus('RECORDING', 'recording');
   document.getElementById('match-id-disp').textContent = state.matchId;
+  document.getElementById('match-progress-disp').textContent = `${state.matchCount} / 10`;
 
   clearLog();
   updateStats();
   startTimer();
 
   if (!state.micActive) toggleMic();
+  requestWakeLock();
   showToast('試合記録を開始しました');
 }
 
@@ -1345,6 +1493,7 @@ function endMatch() {
 
   state.inMatch = false;
   stopTimer();
+  releaseWakeLock();
 
   const endTime  = Date.now();
   const duration = Math.floor((endTime - state.matchStart) / 1000);
@@ -1354,7 +1503,9 @@ function endMatch() {
   // 試合後アンケート送信まで matchData を一時保存
   state.pendingMatchData = {
     matchId:         state.matchId,
+    matchNumber:     state.matchCount,
     participantName: state.participantName,
+    partySize:       state.partySize,
     baselineSurvey:  state.baselineSurvey,
     startTime:       state.matchStart,
     endTime:         endTime,
@@ -1688,19 +1839,34 @@ let isSpeaking = false;
 let watchdogTimer = null;
 
 // ウォッチドッグ：8秒間 onstart/onresult が来なければ強制再起動
-function resetWatchdog() {
-  clearTimeout(watchdogTimer);
-  watchdogTimer = setTimeout(() => {
-    if (state.micActive) {
-      console.warn('watchdog: restarting SpeechRecognition');
+let lastActivityTime = Date.now();
+
+function updateActivity() {
+  lastActivityTime = Date.now();
+}
+
+// ウォッチドッグ：3秒ごとに最終活動時刻をチェック、8秒以上無反応なら強制再起動
+function startWatchdog() {
+  clearInterval(watchdogTimer);
+  watchdogTimer = setInterval(() => {
+    if (!state.micActive) return;
+    const elapsed = Date.now() - lastActivityTime;
+    if (elapsed > 8000) {
+      console.warn('watchdog: no activity for ' + elapsed + 'ms, restarting...');
+      updateActivity(); // 再起動前にリセット（連続再起動防止）
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (state.recognition) {
         try { state.recognition.onend = null; state.recognition.stop(); } catch(e) {}
         state.recognition = null;
       }
+      stopWaveAnimation();
       _createAndStart(SR);
     }
-  }, 8000);
+  }, 3000);
+}
+
+function resetWatchdog() {
+  updateActivity();
 }
 
 function toggleMic() {
@@ -1743,6 +1909,14 @@ function startMic() {
     showToast('このブラウザは音声認識をサポートしていません（Chrome推奨）', true);
     return;
   }
+  // 波形アニメをマイク起動と同時に開始（onstart待ちにしない）
+  stopWaveAnimation();
+  startWaveAnimation();
+  state.micActive = true;
+  const btn = document.getElementById('btn-mic');
+  btn.textContent = '🎤 マイク停止';
+  btn.classList.add('listening');
+  setStatus(state.inMatch ? 'RECORDING' : 'ACTIVE', state.inMatch ? 'recording' : 'active');
   _createAndStart(SpeechRecognition);
 }
 
@@ -1754,7 +1928,8 @@ function _createAndStart(SpeechRecognition) {
   rec.maxAlternatives = 5;
 
   rec.onstart = () => {
-    resetWatchdog(); // 起動確認でウォッチドッグをリセット
+    resetWatchdog();
+    // 波形が止まっていたら再開（ウォッチドッグ再起動後のケア）
     if (!waveAnimFrame) startWaveAnimation();
   };
 
@@ -1826,7 +2001,8 @@ function _createAndStart(SpeechRecognition) {
 
   state.recognition = rec;
   rec.start();
-  resetWatchdog(); // マイク起動時にウォッチドッグ開始
+  updateActivity();
+  startWatchdog(); // マイク起動時にウォッチドッグ開始
 }
 
 // 複数候補から信頼度しきい値を超えた最良候補を選択
@@ -1854,7 +2030,7 @@ function hideRetry() {
 
 function stopMic() {
   clearTimeout(retryTimer);
-  clearTimeout(watchdogTimer);
+  clearInterval(watchdogTimer);
   watchdogTimer = null;
   if (state.recognition) {
     state.recognition.onend = null;
@@ -1990,6 +2166,8 @@ function exportCSV(historyIndex) {
   const rows = [];
   rows.push(['【試合統計】']);
   rows.push(['参加者名', m.participantName || '']);
+  rows.push(['試合番号', m.matchNumber ? `${m.matchNumber} / 10` : '——']);
+  rows.push(['パーティ人数', m.partySize ? m.partySize + '人' : '未設定']);
   rows.push(['試合ID', m.matchId]);
   rows.push(['開始時刻', new Date(m.startTime).toLocaleString('ja-JP')]);
   rows.push(['終了時刻', new Date(m.endTime).toLocaleString('ja-JP')]);
