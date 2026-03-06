@@ -1015,21 +1015,64 @@ const CALLOUT_WORDS = [
 ];
 
 // =========================================================
-// 分類エンジン
+// 分類エンジン（単語ごとにカウント）
 // =========================================================
-function classify(text) {
-  // Step1: 暴言辞書（最優先）
+
+// 1発言に含まれる各カテゴリの単語数を返す
+function countCategories(text) {
+  const result = { positive: 0, negative: 0, toxic: 0, neutral: 0, callout: 0 };
+
+  // TOXIC（1単語ごとにカウント）
   for (const w of TOXIC_WORDS) {
-    if (text.includes(w)) return 'toxic';
+    let pos = 0;
+    while ((pos = text.indexOf(w, pos)) !== -1) {
+      result.toxic++;
+      pos += w.length;
+    }
   }
-  // Step2: 声掛けチェック
-  const isCallout = CALLOUT_WORDS.some(w => text.includes(w));
-  if (isCallout) return 'callout';
-  // Step3: キーワードスコア
-  let pos = POSITIVE_WORDS.filter(w => text.includes(w)).length;
-  let neg = NEGATIVE_WORDS.filter(w => text.includes(w)).length;
-  if (pos > neg) return 'positive';
-  if (neg > pos) return 'negative';
+
+  // CALLOUT（1単語ごとにカウント）
+  for (const w of CALLOUT_WORDS) {
+    let pos = 0;
+    while ((pos = text.indexOf(w, pos)) !== -1) {
+      result.callout++;
+      pos += w.length;
+    }
+  }
+
+  // POSITIVE（1単語ごとにカウント）
+  for (const w of POSITIVE_WORDS) {
+    let pos = 0;
+    while ((pos = text.indexOf(w, pos)) !== -1) {
+      result.positive++;
+      pos += w.length;
+    }
+  }
+
+  // NEGATIVE（1単語ごとにカウント）
+  for (const w of NEGATIVE_WORDS) {
+    let pos = 0;
+    while ((pos = text.indexOf(w, pos)) !== -1) {
+      result.negative++;
+      pos += w.length;
+    }
+  }
+
+  // 何も該当しなければ neutral を1カウント
+  const total = result.toxic + result.callout + result.positive + result.negative;
+  if (total === 0) result.neutral = 1;
+
+  return result;
+}
+
+// ログ表示用：1発言の代表カテゴリを返す（最多カテゴリ、同数はtoxic優先）
+function classify(text) {
+  const c = countCategories(text);
+  if (c.toxic > 0)    return 'toxic';
+  if (c.callout > 0 && c.callout >= c.positive && c.callout >= c.negative) return 'callout';
+  if (c.positive > c.negative) return 'positive';
+  if (c.negative > c.positive) return 'negative';
+  if (c.positive > 0) return 'positive';
   return 'neutral';
 }
 
@@ -1642,16 +1685,36 @@ let retryTimer = null;
 let noSpeechCount = 0;
 let waveAnimFrame = null;
 let isSpeaking = false;
+let watchdogTimer = null;
+
+// ウォッチドッグ：8秒間 onstart/onresult が来なければ強制再起動
+function resetWatchdog() {
+  clearTimeout(watchdogTimer);
+  watchdogTimer = setTimeout(() => {
+    if (state.micActive) {
+      console.warn('watchdog: restarting SpeechRecognition');
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (state.recognition) {
+        try { state.recognition.onend = null; state.recognition.stop(); } catch(e) {}
+        state.recognition = null;
+      }
+      _createAndStart(SR);
+    }
+  }, 8000);
+}
 
 function toggleMic() {
   if (state.micActive) { stopMic(); } else { startMic(); }
 }
 
-// 波形アニメ：発話中はランダムに揺れる、無音時は静止
+// 波形アニメ：発話中はランダムに揺れる、無音時は静止（描画は100ms間隔に制限）
 function startWaveAnimation() {
   const bars = document.querySelectorAll('.wave-bar');
-  function draw() {
+  let last = 0;
+  function draw(ts) {
     waveAnimFrame = requestAnimationFrame(draw);
+    if (ts - last < 100) return; // 100msに1回だけ描画（CPU負荷軽減）
+    last = ts;
     bars.forEach(bar => {
       if (isSpeaking) {
         const h = 6 + Math.random() * 24;
@@ -1663,7 +1726,7 @@ function startWaveAnimation() {
       }
     });
   }
-  draw();
+  draw(0);
 }
 
 function stopWaveAnimation() {
@@ -1691,6 +1754,7 @@ function _createAndStart(SpeechRecognition) {
   rec.maxAlternatives = 5;
 
   rec.onstart = () => {
+    resetWatchdog(); // 起動確認でウォッチドッグをリセット
     if (!waveAnimFrame) startWaveAnimation();
   };
 
@@ -1702,6 +1766,7 @@ function _createAndStart(SpeechRecognition) {
     noSpeechCount = 0;
     hideRetry();
     isSpeaking = true;
+    resetWatchdog(); // 発話検知でもウォッチドッグをリセット
 
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -1761,6 +1826,7 @@ function _createAndStart(SpeechRecognition) {
 
   state.recognition = rec;
   rec.start();
+  resetWatchdog(); // マイク起動時にウォッチドッグ開始
 }
 
 // 複数候補から信頼度しきい値を超えた最良候補を選択
@@ -1788,6 +1854,8 @@ function hideRetry() {
 
 function stopMic() {
   clearTimeout(retryTimer);
+  clearTimeout(watchdogTimer);
+  watchdogTimer = null;
   if (state.recognition) {
     state.recognition.onend = null;
     try { state.recognition.stop(); } catch(e) {}
@@ -1815,10 +1883,18 @@ function onFinalSpeech(text, confidence = 1) {
   document.getElementById('interim-box').classList.add('has-text');
 
   if (state.inMatch) {
-    const category = classify(text);
+    const wordCounts = countCategories(text);
+    const category   = classify(text); // ログ表示用の代表カテゴリ
     const now = new Date();
-    state.utterances.push({ time: now, text, category, confidence: Math.round(confidence * 100) });
-    state.counts[category]++;
+
+    // 単語ごとのカウントを加算
+    state.counts.positive += wordCounts.positive;
+    state.counts.negative += wordCounts.negative;
+    state.counts.toxic    += wordCounts.toxic;
+    state.counts.neutral  += wordCounts.neutral;
+    state.counts.callout  += wordCounts.callout;
+
+    state.utterances.push({ time: now, text, category, confidence: Math.round(confidence * 100), wordCounts });
     state.talkSeconds += Math.max(1, text.length * 0.12);
     updateStats();
     addLogItem({ time: now, text, category, confidence: Math.round(confidence * 100) });
@@ -1835,8 +1911,8 @@ function setStatus(label, cls) {
 }
 
 function updateStats() {
-  const { counts, utterances } = state;
-  const total = utterances.length;
+  const { counts } = state;
+  const total = counts.positive + counts.negative + counts.toxic + counts.neutral + counts.callout;
   const max   = Math.max(1, total);
 
   ['positive','negative','toxic','neutral','callout'].forEach(cat => {
@@ -1845,7 +1921,8 @@ function updateStats() {
     document.getElementById('bar-' + cat).style.width = (n / max * 100) + '%';
   });
 
-  document.getElementById('total-count').textContent = total + ' 発言';
+  const uttTotal = state.utterances.length;
+  document.getElementById('total-count').textContent = uttTotal + ' 発言';
 
   if (state.matchStart) {
     const dur = Math.floor((Date.now() - state.matchStart) / 1000);
